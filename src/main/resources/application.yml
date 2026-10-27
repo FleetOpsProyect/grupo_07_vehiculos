@@ -1,0 +1,68 @@
+spring:
+  profiles:
+    active: dev
+
+  application:
+    name: ms-vehiculos
+
+  jpa:
+    # Los services devuelven DTO dentro de la transacción: no se necesita open-in-view
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  # Convención del DAS general: JSON en snake_case, fechas ISO 8601 en GMT-5
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    time-zone: America/Bogota
+
+  # Timeout de 2 s para las llamadas a Documentación y Asignaciones
+  http:
+    client:
+      connect-timeout: 2s
+      read-timeout: 2s
+
+server:
+  port: 8085
+
+fleetops:
+  services:
+    documents:
+      url: ${DOCUMENTS_SERVICE_URL:http://localhost:8081}
+    assignments:
+      url: ${ASSIGNMENTS_SERVICE_URL:http://localhost:8082}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    try-it-out-enabled: true
+
+# Endpoints transversales del catálogo: GET /health, GET /ready y GET /metrics
+management:
+  endpoints:
+    web:
+      base-path: /
+      exposure:
+        include: health, info, prometheus
+      path-mapping:
+        prometheus: metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState, db
+          additional-path: server:/ready

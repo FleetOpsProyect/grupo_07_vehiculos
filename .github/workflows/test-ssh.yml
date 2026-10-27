@@ -1,0 +1,22 @@
+# Workflow temporal (Paso 16.5): verificar la conexión SSH al EC2 antes del primer
+# despliegue. Ejecutar desde Actions → Test SSH Connection → Run workflow y luego borrarlo.
+name: Test SSH Connection
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-ssh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar conexión SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "Conexión SSH exitosa"
+            docker --version
+            docker compose version
+            ls ~/app/

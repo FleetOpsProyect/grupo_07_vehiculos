@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vehiculos_postgres
+    environment:
+      POSTGRES_DB: vehiculos_db
+      POSTGRES_USER: vehiculos_user
+      POSTGRES_PASSWORD: vehiculos_pass
+    ports:
+      - "3050:5432"
+    volumes:
+      - vehiculos_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vehiculos_user -d vehiculos_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  vehiculos_data:

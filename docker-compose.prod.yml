@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vehiculos_postgres_prod
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+    # Sin "ports": la base de datos solo es accesible dentro de la red de Docker.
+    # Si el equipo necesita entrar desde afuera, publicar "3050:5432" solo para su IP.
+    volumes:
+      - vehiculos_prod_data:/var/lib/postgresql/data
+    networks:
+      - vehiculos_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    image: ${DOCKER_HUB_USERNAME}/ms-vehiculos:latest
+    container_name: vehiculos_api_prod
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      # application-test.yml no va al repositorio, así que la imagen del CD no lo trae:
+      # la conexión también se pasa por variables de entorno
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASS}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/${DB_NAME}
+      SPRING_FLYWAY_USER: ${DB_USER}
+      SPRING_FLYWAY_PASSWORD: ${DB_PASS}
+      # URLs internas de los microservicios de los que depende Vehículos
+      DOCUMENTS_SERVICE_URL: ${DOCUMENTS_SERVICE_URL}
+      ASSIGNMENTS_SERVICE_URL: ${ASSIGNMENTS_SERVICE_URL}
+    ports:
+      - "8085:8085"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vehiculos_network
+    restart: unless-stopped
+
+networks:
+  vehiculos_network:
+    driver: bridge
+
+volumes:
+  vehiculos_prod_data:

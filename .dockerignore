@@ -1,0 +1,9 @@
+.git
+.gradle
+.idea
+.vscode
+build
+*.pem
+*.ppk
+.env
+src/main/resources/application-dev.yml

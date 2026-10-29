@@ -1,20 +1,45 @@
 #!/bin/bash
-# Despliegue en el EC2. Copiar a ~/app/deploy.sh junto con docker-compose.prod.yml y .env
-set -e
+# Despliegue en el EC2: ./deploy.sh <image_tag>   (el tag es el SHA del commit que sube el CD)
+# Vive en ~/app junto con docker-compose.prod.yml y .env. El CD lo copia en cada despliegue.
+# Si la API nueva no queda UP, vuelve a la versión anterior (la guarda en .deployed_tag).
+set -euo pipefail
 
-echo "==> Iniciando despliegue en $(date)"
+TAG="${1:?Uso: ./deploy.sh <image_tag>}"
+COMPOSE="docker compose -f docker-compose.prod.yml"
+
 cd ~/app
+PREVIOUS="$(cat .deployed_tag 2>/dev/null || true)"
 
-# Toma la imagen de ${DOCKER_HUB_USERNAME} definida en .env
-docker compose -f docker-compose.prod.yml pull api
-docker compose -f docker-compose.prod.yml down --remove-orphans || true
-docker compose -f docker-compose.prod.yml up -d
+wait_for_api() {
+  for _ in $(seq 1 30); do
+    if curl -sf http://localhost:8085/health > /dev/null; then
+      return 0
+    fi
+    sleep 3
+  done
+  return 1
+}
 
-sleep 20
-docker compose -f docker-compose.prod.yml ps
+deploy() {
+  export IMAGE_TAG="$1"
+  $COMPOSE pull api
+  $COMPOSE up -d --remove-orphans
+  $COMPOSE ps
+}
 
-curl -f http://localhost:8085/health \
-  && echo "API UP" \
-  || echo "ADVERTENCIA: API no responde"
+echo "==> Desplegando ${TAG} ($(date))"
+deploy "${TAG}"
 
-echo "==> Despliegue completado en $(date)"
+if wait_for_api; then
+  echo "${TAG}" > .deployed_tag
+  echo "==> API UP con ${TAG}"
+  exit 0
+fi
+
+echo "==> ERROR: la API no respondió en /health"
+$COMPOSE logs --tail=50 api || true
+if [ -n "${PREVIOUS}" ] && [ "${PREVIOUS}" != "${TAG}" ]; then
+  echo "==> Volviendo a ${PREVIOUS}"
+  deploy "${PREVIOUS}"
+fi
+exit 1

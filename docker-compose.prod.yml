@@ -1,6 +1,8 @@
+# Producción (EC2). Lo copia el CD a ~/app junto con deploy.sh; el .env vive solo en el EC2.
+# IMAGE_TAG (SHA del commit) lo pasa deploy.sh: nunca se usa "latest".
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17.5-alpine
     container_name: vehiculos_postgres_prod
     environment:
       POSTGRES_DB: ${DB_NAME}
@@ -20,17 +22,11 @@ services:
     restart: unless-stopped
 
   api:
-    image: ${DOCKER_HUB_USERNAME}/ms-vehiculos:latest
+    image: ${DOCKER_HUB_USERNAME}/ms-vehiculos:${IMAGE_TAG:?Defina IMAGE_TAG (use ./deploy.sh <tag>)}
     container_name: vehiculos_api_prod
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASS: ${DB_PASS}
-      # application-test.yml no va al repositorio, así que la imagen del CD no lo trae:
-      # la conexión también se pasa por variables de entorno
+      # La imagen no trae application-*.yml (están en .gitignore): la conexión va por variables
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${DB_NAME}
       SPRING_DATASOURCE_USERNAME: ${DB_USER}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASS}

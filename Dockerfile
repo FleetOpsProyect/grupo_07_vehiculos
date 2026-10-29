@@ -1,5 +1,5 @@
 # ── Etapa 1: Build ────────────────────────────────────────────────────────
-FROM amazoncorretto:21-alpine AS builder
+FROM amazoncorretto:21.0.8-alpine3.22 AS builder
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ COPY src src
 RUN ./gradlew bootJar --no-daemon -x test -x checkstyleMain -x checkstyleTest
 
 # ── Etapa 2: Runtime ──────────────────────────────────────────────────────
-FROM amazoncorretto:21-alpine
+FROM amazoncorretto:21.0.8-alpine3.22
 
 WORKDIR /app
 
@@ -37,4 +37,9 @@ EXPOSE 8085
 # Memoria conservadora para t3.micro y hora de Colombia
 ENV JAVA_OPTS="-Xms256m -Xmx512m -Duser.timezone=America/Bogota"
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+# GET /health devuelve 503 si la base de datos no responde
+HEALTHCHECK --interval=15s --timeout=3s --start-period=40s --retries=5 \
+  CMD wget -q -O /dev/null http://localhost:8085/health || exit 1
+
+# exec: la JVM recibe SIGTERM y cierra ordenadamente
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

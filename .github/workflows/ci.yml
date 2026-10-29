@@ -1,9 +1,11 @@
 name: CI — Integración Continua
 
+# PR de una rama personal hacia dev, y PR de dev hacia main.
 on:
   pull_request:
     branches:
-      - develop
+      - dev
+      - main
 
 permissions:
   contents: read
@@ -37,20 +39,11 @@ jobs:
       - name: Dar permisos al Gradle wrapper
         run: chmod +x gradlew
 
-      - name: Checkstyle
-        run: ./gradlew checkstyleMain checkstyleTest
-
-      - name: Tests unitarios
-        run: ./gradlew test --tests "co.edu.univalle.fleetops.vehicles.service.*"
-
-      - name: Tests de integración con Testcontainers
-        run: ./gradlew test --tests "co.edu.univalle.fleetops.vehicles.integration.*" --tests "co.edu.univalle.fleetops.vehicles.VehiclesApplicationTests"
-
-      - name: Generar reporte JaCoCo (suite completa)
-        run: ./gradlew test jacocoTestReport
-
-      - name: Verificar cobertura >= 80%
-        run: ./gradlew jacocoTestCoverageVerification
+      # check = Checkstyle + todas las pruebas (unitarias, ArchUnit y de integración con
+      # Testcontainers, que usa el Docker del runner) + cobertura JaCoCo:
+      # 100 % de líneas y ramas en domain y application, 80 % global.
+      - name: Checkstyle, pruebas y cobertura
+        run: ./gradlew check
 
       - name: Build final
         run: ./gradlew bootJar -x test

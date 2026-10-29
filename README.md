@@ -7,23 +7,29 @@ hexagonal**. Fuentes de verdad: `docs/contrato_ms_vehiculos.md` (contrato) y `do
 
 ## Correr en local
 
-Requisitos: **JDK 21** y un contenedor de PostgreSQL 17.
+Requisitos: **JDK 21** y Docker (o Podman).
 
 ```bash
-docker run -d --name vehiculos_postgres -e POSTGRES_DB=vehiculos_db -e POSTGRES_USER=vehiculos_user \
-  -e POSTGRES_PASSWORD=vehiculos_pass -p 3050:5432 postgres:17.5-alpine
+cp .env.example .env          # una sola vez; ponga su DB_PASS (el mismo de su application-dev.yml)
+docker compose up -d          # solo PostgreSQL 17.5 en el puerto 3050
 ./gradlew bootRun             # API en el puerto 8085
 ```
 
-(`docker-compose.yml` todavía trae `postgres:16`; se corrige en el paso de Docker, ver "Pendiente".)
+Para correr también la API dentro de un contenedor (imagen `ms-vehiculos:local`):
+
+```bash
+docker compose --profile app up -d --build
+docker compose --profile app down        # apagar (agregue -v para borrar la base)
+```
 
 - Swagger: http://localhost:8085/swagger-ui.html
 - Salud: http://localhost:8085/health · Listo: `/ready` · Métricas: `/metrics`
 - `application-dev.yml` y `application-test.yml` están en `.gitignore` (Paso 3 del dojo); cada
-  integrante conserva el suyo. Las pruebas no los necesitan: usan Testcontainers.
-- Si tenían una base local de antes del Sprint 0, bórrenla: `docker rm -f vehiculos_postgres`
-  (o `docker compose down -v`). Las migraciones V1–V3 cambiaron y no incluyen `applied_route`
-  (se crea en V4 en el Sprint 1).
+  integrante conserva el suyo. Las pruebas no los necesitan: usan Testcontainers. El contenedor
+  de la API tampoco: recibe la conexión por variables de entorno.
+- Si tenían una base local de antes del Sprint 0 (PostgreSQL 16 o migraciones viejas), bórrenla:
+  `docker compose down -v`. Las migraciones V1–V3 cambiaron y no incluyen `applied_route` (se crea
+  en V4 en el Sprint 1), y un volumen de PostgreSQL 16 no arranca con la imagen 17.
 
 ### Nota sobre el JDK
 
@@ -37,13 +43,17 @@ org.gradle.java.home=/ruta/a/su/jdk-21
 
 ### Nota sobre Podman
 
-Las pruebas con Testcontainers necesitan un socket de Docker. Con Podman:
+Las pruebas con Testcontainers y `docker compose` necesitan un socket de Docker. Con Podman:
 
 ```bash
 systemctl --user enable --now podman.socket
 export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock
 export TESTCONTAINERS_RYUK_DISABLED=true
 ```
+
+Podman exige nombres de imagen completos: para construir el `Dockerfile` (usa `amazoncorretto:...`
+sin registro) agregue `unqualified-search-registries = ["docker.io"]` a
+`~/.config/containers/registries.conf`. `HEALTHCHECK` solo funciona con `podman build --format docker`.
 
 ## Calidad
 
@@ -135,11 +145,33 @@ ambiguo, se pregunta antes de suponer.
 
 Al terminar: `./gradlew check` en verde.
 
+## CI/CD y despliegue
+
+Flujo de ramas (dojo, Paso 13): rama personal → PR a `dev` (corre el CI) → PR de `dev` a `main`
+(al fusionar corre el CD). Nadie hace push directo a `dev` ni a `main`.
+
+| Workflow | Cuándo | Qué hace |
+| --- | --- | --- |
+| `ci.yml` | PR hacia `dev` o `main` | Job **Build, Test y Calidad**: `./gradlew check` (Checkstyle, pruebas unitarias, ArchUnit, integración con Testcontainers y cobertura 100 %/80 %), `bootJar` y reporte JaCoCo. Job **SonarCloud Analysis** (ver pendientes). |
+| `cd.yml` | push a `main` (merge del PR) | Construye la imagen (el `Dockerfile` compila el JAR), la sube a Docker Hub con el tag del **SHA del commit** (nunca `latest`), copia `docker-compose.prod.yml` y `deploy.sh` al EC2 y ejecuta `./deploy.sh <sha>`. |
+| `test-ssh.yml` | manual | Verifica la conexión SSH al EC2 antes del primer despliegue. Bórrenlo cuando ya funcione. |
+
+`deploy.sh` levanta la imagen, espera hasta 90 s a que `GET /health` responda y, si no responde,
+vuelve a la versión anterior (guardada en `~/app/.deployed_tag`) y falla el job. Flyway aplica las
+migraciones nuevas al arrancar; el pipeline no necesita lógica extra.
+
+**Secrets de GitHub** (Settings → Secrets and variables → Actions): `DOCKERHUB_USERNAME`,
+`DOCKERHUB_TOKEN`, `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `SONAR_TOKEN` y, opcional,
+`OPENAI_API_KEY` (revisión de Qodo). En el EC2, `~/app/.env` se crea desde `.env.example` (sin
+`IMAGE_TAG`: lo pasa `deploy.sh`).
+
+Despliegue manual o rollback a mano desde el EC2: `cd ~/app && ./deploy.sh <sha_anterior>`.
+
 ## Estado del Sprint 0
 
 Hecho: dominio y casos de uso (7), persistencia JPA con Flyway V1–V3, `POST /vehicles`,
 `GET /vehicles/{id}`, manejador de errores, filtro `X-Correlation-Id`, Swagger, `/health`,
-`/ready`, `/metrics`.
+`/ready`, `/metrics`, Docker (Dockerfile, compose local y de producción) y los workflows de CI/CD.
 
 ## Pendiente del Sprint 0
 
@@ -151,13 +183,12 @@ Hecho: dominio y casos de uso (7), persistencia JPA con Flyway V1–V3, `POST /v
   `GET /assignment/active`) por clientes HTTP con timeout de 2 s que lancen
   `DocumentServiceUnavailableException` / `AssignmentServiceUnavailableException` (503). Hoy esos
   marcadores responden 503 siempre. `infrastructure/client` está excluido de JaCoCo hasta entonces.
-- [ ] **Docker**: `Dockerfile`, `docker-compose.yml` (PostgreSQL 17 + API), `docker-compose.prod.yml`,
-  `.env.example`; imágenes con versión exacta, nunca `latest`. Corregir `postgres:16-alpine` del
-  compose actual.
-- [ ] **CI/CD**: `ci.yml`, `cd.yml`, `test-ssh.yml`, `deploy.sh`.
-- [ ] **SonarCloud**: reemplazar `TU-ORGANIZACION` en `build.gradle` y ajustar las exclusiones de
-  cobertura a la estructura hexagonal.
-- [ ] **Despliegue en EC2** y checklist C01–C12 del dojo.
+- [ ] **SonarCloud**: reemplazar `TU-ORGANIZACION` en `build.gradle`, ajustar las exclusiones de
+  cobertura a la estructura hexagonal y crear `SONAR_TOKEN`. **Mientras no esté hecho, el job
+  "SonarCloud Analysis" del CI falla.**
+- [ ] **Despliegue en EC2** (dojo, Paso 11): instancia, Docker y Compose, `~/app/.env`, `ssh-rsa`
+  habilitado, secrets de GitHub, correr `test-ssh.yml` y proteger las ramas `dev` y `main`.
+  Checklist C01–C12.
 - [ ] Mapear `ObjectOptimisticLockingFailureException` a 409 si el equipo lo decide.
 
 ## Pendiente para el Sprint 1

@@ -147,6 +147,11 @@ sonar {
     }
 }
 
+// El JAR ejecutable es solo bootJar: sin el "-plain.jar", el Dockerfile copia un único archivo
+jar {
+    enabled = false
+}
+
 // ── Orden de tareas ───────────────────────────────────────────────────────
 
 test {

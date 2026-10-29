@@ -1,9 +1,14 @@
 .git
+.github
 .gradle
 .idea
 .vscode
 build
+docs
+deploy
+README.md
 *.pem
 *.ppk
 .env
 src/main/resources/application-dev.yml
+src/main/resources/application-test.yml

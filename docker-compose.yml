@@ -1,20 +1,52 @@
+# Desarrollo local.
+#   docker compose up -d                      -> solo PostgreSQL (puerto 3050); la API con ./gradlew bootRun
+#   docker compose --profile app up -d --build -> PostgreSQL + API en contenedor (puerto 8085)
+# Las variables salen del archivo .env (copiar de .env.example). Sin DB_PASS no arranca.
 services:
   postgres:
     image: postgres:17.5-alpine
     container_name: vehiculos_postgres
     environment:
-      POSTGRES_DB: vehiculos_db
-      POSTGRES_USER: vehiculos_user
-      POSTGRES_PASSWORD: vehiculos_pass
+      POSTGRES_DB: ${DB_NAME:-vehiculos_db}
+      POSTGRES_USER: ${DB_USER:-vehiculos_user}
+      POSTGRES_PASSWORD: ${DB_PASS:?Defina DB_PASS en el archivo .env (copiar de .env.example)}
     ports:
       - "3050:5432"
     volumes:
       - vehiculos_data:/var/lib/postgresql/data
+    networks:
+      - vehiculos_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vehiculos_user -d vehiculos_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-vehiculos_user} -d ${DB_NAME:-vehiculos_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  api:
+    profiles: ["app"]
+    build: .
+    image: ms-vehiculos:local
+    container_name: vehiculos_api
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-vehiculos_db}
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-vehiculos_user}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASS}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-vehiculos_db}
+      SPRING_FLYWAY_USER: ${DB_USER:-vehiculos_user}
+      SPRING_FLYWAY_PASSWORD: ${DB_PASS}
+      DOCUMENTS_SERVICE_URL: ${DOCUMENTS_SERVICE_URL:-http://localhost:8081}
+      ASSIGNMENTS_SERVICE_URL: ${ASSIGNMENTS_SERVICE_URL:-http://localhost:8082}
+    ports:
+      - "8085:8085"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vehiculos_network
+
+networks:
+  vehiculos_network:
+    driver: bridge
 
 volumes:
   vehiculos_data:

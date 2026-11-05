@@ -137,7 +137,7 @@ checkstyle {
 sonar {
     properties {
         property 'sonar.projectKey', 'FleetOpsProyect_grupo_07_vehiculos'
-        property 'sonar.organization', 'FleetOpsProyect'
+        property 'sonar.organization', 'fleetopsproyect'
         property 'sonar.host.url', 'https://sonarcloud.io'
         property 'sonar.coverage.jacoco.xmlReportPaths',
                  'build/reports/jacoco/test/jacocoTestReport.xml'

@@ -1,21 +1,19 @@
 name: CI — Integración Continua
 
 # PR de una rama personal hacia dev, y PR de dev hacia main.
+# El push a dev y main analiza esas ramas en SonarCloud (base para comparar los PR).
 on:
   push:
     branches:
       - main
       - dev
-      - JCSP
   pull_request:
     branches:
       - dev
       - main
-      - JCSP
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
 
@@ -61,15 +59,6 @@ jobs:
           name: jacoco-report
           path: build/jacocoHtml/
           retention-days: 7
-
-      # Requiere el secret OPENAI_API_KEY; si no existe, no bloquea el CI
-      - name: Qodo — revisión automática del PR
-        uses: qodo-ai/pr-agent@main
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
-        env:
-          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   sonar:
     name: SonarCloud Analysis

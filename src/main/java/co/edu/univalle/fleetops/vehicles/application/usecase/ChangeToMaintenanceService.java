@@ -1,6 +1,7 @@
 package co.edu.univalle.fleetops.vehicles.application.usecase;
 
 import co.edu.univalle.fleetops.vehicles.application.command.ChangeToMaintenanceCommand;
+import co.edu.univalle.fleetops.vehicles.application.exception.ConcurrentVehicleUpdateException;
 import co.edu.univalle.fleetops.vehicles.application.port.in.ChangeToMaintenanceUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.out.StatusHistoryRepository;
 import co.edu.univalle.fleetops.vehicles.application.port.out.TransactionPort;
@@ -17,7 +18,10 @@ import java.time.OffsetDateTime;
 
 /**
  * Paso a IN_MAINTENANCE desde ACTIVE; un vehículo eliminado responde 404. Repetir el mismo
- * {@code maintenance_id} devuelve el vehículo sin cambios ni registro nuevo en el historial.
+ * {@code maintenance_id} devuelve el vehículo sin cambios ni registro nuevo en el historial. Si otra
+ * petición modifica el vehículo al mismo tiempo, reintenta una sola vez en una transacción nueva: al
+ * recargar se aplican las reglas normales (por ejemplo, el mismo {@code maintenance_id} ya aplicado
+ * responde 200). Si el reintento también choca, el conflicto sube sin más intentos.
  */
 public class ChangeToMaintenanceService implements ChangeToMaintenanceUseCase {
 
@@ -44,6 +48,14 @@ public class ChangeToMaintenanceService implements ChangeToMaintenanceUseCase {
 
     @Override
     public VehicleResult execute(ChangeToMaintenanceCommand command) {
+        try {
+            return attempt(command);
+        } catch (ConcurrentVehicleUpdateException conflict) {
+            return attempt(command);
+        }
+    }
+
+    private VehicleResult attempt(ChangeToMaintenanceCommand command) {
         return transaction.execute(() -> {
             Vehicle vehicle = vehicles.findById(command.vehicleId())
                     .filter(found -> !found.isDeleted())

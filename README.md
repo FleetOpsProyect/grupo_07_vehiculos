@@ -2,8 +2,7 @@
 
 Microservicio de Vehículos de FleetOps. Java 21, Spring Boot 3.5.14, Gradle, PostgreSQL 17, Flyway,
 JPA, Swagger, JUnit 5, Mockito, Testcontainers, ArchUnit, JaCoCo y Checkstyle, con **arquitectura
-hexagonal**. Fuentes de verdad: `docs/contrato_ms_vehiculos.md` (contrato) y `docs/claude.md`
-(decisiones y alcance).
+hexagonal**.
 
 ## Correr en local
 
@@ -34,8 +33,8 @@ docker compose --profile app down        # apagar (agregue -v para borrar la bas
 ### Nota sobre el JDK
 
 La toolchain del proyecto es Java 21 (`build.gradle`). Si el JDK por defecto de su máquina no es el
-21 (por ejemplo, es el 25 y Gradle 8.14 falla con `Unsupported class file major version`), indiquen
-el JDK **en su archivo personal** `~/.gradle/gradle.properties`, nunca en el del proyecto:
+21 (por ejemplo, Gradle falla con `Unsupported class file major version`), indiquen el JDK **en su
+archivo personal** `~/.gradle/gradle.properties`, nunca en el del proyecto:
 
 ```properties
 org.gradle.java.home=/ruta/a/su/jdk-21
@@ -70,7 +69,7 @@ co.edu.univalle.fleetops.vehicles
 ├── domain            Reglas del negocio. Sin Spring, JPA ni Lombok.
 │   ├── model         Vehicle, VehicleBlock, VehicleDetails, StatusHistoryEntry y enums
 │   ├── rule          VehicleStatusRule (prioridad de estados), VehicleValidationRules
-│   └── exception     DomainException y errores con el código del contrato
+│   └── exception     DomainException y errores con su código de error de la API
 ├── application       Casos de uso. Sin Spring, JPA ni Lombok.
 │   ├── port.in       Un puerto de entrada (interfaz) por caso de uso
 │   ├── port.out      VehicleRepository, StatusHistoryRepository, DocumentValidityPort,
@@ -104,12 +103,11 @@ Decisiones que conviene conocer:
 
 ## Cómo agregar un endpoint
 
-Ejemplo de referencia: `POST /vehicles` (ya hecho). Sigan este orden y no se salten pasos.
+Ejemplos de referencia: `POST /vehicles` (alta) y `PUT /vehicles/{id}/status` (HU-04, con body que
+se valida en el mapper). Sigan este orden y no se salten pasos.
 
 **Reglas**: en `domain` y `application` no hay Spring, JPA, Jackson ni Lombok. El controller solo
 traduce HTTP ↔ caso de uso: nada de reglas de negocio ni validaciones (eso vive en `domain/rule`).
-Todo lo que no esté en `docs/` se marca como "Archetype Convention Addition". Si el contrato es
-ambiguo, se pregunta antes de suponer.
 
 1. **Puerto de entrada** — `application/port/in/RegisterVehicleUseCase.java`: una interfaz con un
    solo método `execute`. Su entrada es un comando o consulta (`application/command` o
@@ -132,16 +130,20 @@ ambiguo, se pregunta antes de suponer.
    código de error nuevo, agréguenlo a `STATUS_BY_CODE`.
 5. **DTO** — `infrastructure/web/dto/CreateVehicleRequest.java` y `VehicleResponse.java`: `record`
    en camelCase; Jackson los publica en snake_case (`vehicle_type`). Las fechas de respuesta salen
-   en GMT-5 (`VehicleWebMapper`). Los ids de ruta se reciben como `String` y, si no son UUID,
-   responden 404 (`parseId` en el controller). Los campos no editables (`NOT_EDITABLE`) los
-   detecta la capa REST.
+   en GMT-5 (`VehicleWebMapper`). Los ids de ruta se reciben como `String` y, si no son un UUID
+   canónico (`VehicleWebMapper.parseUuid`, también para los UUID del body), responden 404 (`parseId`
+   en el controller). Los campos no editables (`NOT_EDITABLE`) los
+   detecta la capa REST. Si el body trae campos que hay que validar todos a la vez, el DTO los
+   recibe como `String` y el mapper los convierte y lanza un solo `ValidationException` con todos
+   los errores (ver `ChangeStatusRequest` y `VehicleWebMapper.toCommand`).
 6. **Prueba unitaria** — `src/test/.../application/usecase/RegisterVehicleServiceTest.java`:
    patrón AAA, Mockito para los puertos de salida y `PassThroughTransactionPort` como transacción.
    Cubran **todas** las ramas: `domain` y `application` exigen 100 % de líneas y ramas.
 7. **Prueba de integración** — `src/test/.../infrastructure/web/VehicleApiIntegrationTest.java`:
    hereda de `PostgresIntegrationTest` (PostgreSQL 17 con Testcontainers, Flyway aplicado, tablas
    limpias en cada prueba) y usa `MockMvc` para verificar código HTTP, `code` y la forma del JSON
-   del contrato.
+   esperada. Una placa distinta por prueba. Ver también
+   `VehicleMaintenanceApiIntegrationTest` (PUT) y `VehicleWebMapperTest` (validación del body).
 
 Al terminar: `./gradlew check` en verde.
 
@@ -152,7 +154,7 @@ Flujo de ramas (dojo, Paso 13): rama personal → PR a `dev` (corre el CI) → P
 
 | Workflow | Cuándo | Qué hace |
 | --- | --- | --- |
-| `ci.yml` | PR hacia `dev` o `main` | Job **Build, Test y Calidad**: `./gradlew check` (Checkstyle, pruebas unitarias, ArchUnit, integración con Testcontainers y cobertura 100 %/80 %), `bootJar` y reporte JaCoCo. Job **SonarCloud Analysis** (ver pendientes). |
+| `ci.yml` | PR hacia `dev` o `main`, y push a `dev` o `main` | Job **Build, Test y Calidad**: `./gradlew check` (Checkstyle, pruebas unitarias, ArchUnit, integración con Testcontainers y cobertura 100 %/80 %), `bootJar` y reporte JaCoCo. Job **SonarCloud Analysis**: `./gradlew sonar`; el push a `dev` y `main` deja la base con la que se comparan los PR. |
 | `cd.yml` | push a `main` (merge del PR) | Construye la imagen (el `Dockerfile` compila el JAR), la sube a Docker Hub con el tag del **SHA del commit** (nunca `latest`), copia `docker-compose.prod.yml` y `deploy.sh` al EC2 y ejecuta `./deploy.sh <sha>`. |
 | `test-ssh.yml` | manual | Verifica la conexión SSH al EC2 antes del primer despliegue. Bórrenlo cuando ya funcione. |
 
@@ -161,35 +163,44 @@ vuelve a la versión anterior (guardada en `~/app/.deployed_tag`) y falla el job
 migraciones nuevas al arrancar; el pipeline no necesita lógica extra.
 
 **Secrets de GitHub** (Settings → Secrets and variables → Actions): `DOCKERHUB_USERNAME`,
-`DOCKERHUB_TOKEN`, `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, `SONAR_TOKEN` y, opcional,
-`OPENAI_API_KEY` (revisión de Qodo). En el EC2, `~/app/.env` se crea desde `.env.example` (sin
-`IMAGE_TAG`: lo pasa `deploy.sh`).
+`DOCKERHUB_TOKEN`, `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY` y `SONAR_TOKEN`. En el EC2, `~/app/.env`
+se crea desde `.env.example` (sin `IMAGE_TAG`: lo pasa `deploy.sh`).
 
 Despliegue manual o rollback a mano desde el EC2: `cd ~/app && ./deploy.sh <sha_anterior>`.
 
 ## Estado del Sprint 0
 
-Hecho: dominio y casos de uso (7), persistencia JPA con Flyway V1–V3, `POST /vehicles`,
-`GET /vehicles/{id}`, manejador de errores, filtro `X-Correlation-Id`, Swagger, `/health`,
-`/ready`, `/metrics`, Docker (Dockerfile, compose local y de producción) y los workflows de CI/CD.
+Hecho: dominio y casos de uso (7), persistencia JPA con Flyway V1–V3, `POST /vehicles` (HU-01),
+`GET /vehicles/{id}`, `PUT /vehicles/{id}/status` (HU-04: paso a IN_MAINTENANCE, idempotente por
+`maintenance_id`), manejador de errores, filtro `X-Correlation-Id`, Swagger, `/health`, `/ready`,
+`/metrics`, Docker (Dockerfile, compose local y de producción), los workflows de CI/CD y el EC2. Si la base
+de datos no responde, cualquier endpoint responde 503 `SERVICE_UNAVAILABLE` y registra el fallo con
+nivel ERROR.
 
 ## Pendiente del Sprint 0
 
 - [ ] **Endpoints restantes** (puerto y caso de uso ya existen; falta controller, DTO y pruebas):
-  `GET /vehicles` (con `summary`), `GET /vehicles?valid_until=` (aptos), `PUT /vehicles/{id}`,
-  `PUT /vehicles/{id}/status`, `DELETE /vehicles/{id}`.
+  `GET /vehicles` (con `summary`), `GET /vehicles?valid_until=` (aptos), `PUT /vehicles/{id}` y
+  `DELETE /vehicles/{id}`.
 - [ ] **Clientes de G1 y G2**: reemplazar `PendingDocumentValidityClient` (G1,
   `GET /documents/validity-check`, lotes de 100) y `PendingAssignmentsClient` (G2,
   `GET /assignment/active`) por clientes HTTP con timeout de 2 s que lancen
   `DocumentServiceUnavailableException` / `AssignmentServiceUnavailableException` (503). Hoy esos
   marcadores responden 503 siempre. `infrastructure/client` está excluido de JaCoCo hasta entonces.
-- [ ] **SonarCloud**: reemplazar `TU-ORGANIZACION` en `build.gradle`, ajustar las exclusiones de
-  cobertura a la estructura hexagonal y crear `SONAR_TOKEN`. **Mientras no esté hecho, el job
-  "SonarCloud Analysis" del CI falla.**
-- [ ] **Despliegue en EC2** (dojo, Paso 11): instancia, Docker y Compose, `~/app/.env`, `ssh-rsa`
-  habilitado, secrets de GitHub, correr `test-ssh.yml` y proteger las ramas `dev` y `main`.
-  Checklist C01–C12.
-- [ ] Mapear `ObjectOptimisticLockingFailureException` a 409 si el equipo lo decide.
+- [ ] **SonarCloud**: la organización, la clave del proyecto y `SONAR_TOKEN` ya están configurados.
+  Falta ajustar `sonar.coverage.exclusions` en `build.gradle` a la estructura hexagonal: hoy excluye
+  `**/model/**` y `**/exception/**`, que ahora son del dominio y sí deben medirse.
+- [ ] **Primer despliegue y cierre del Paso 11**: el EC2 ya está preparado (instancia, Docker y
+  Compose, `~/app/.env`). Falta el primer despliegue por el CD (merge de `dev` a `main`), comprobar
+  `GET /health` en el servidor, proteger las ramas `dev` y `main` en GitHub y el checklist C01–C12.
+
+## Deuda técnica
+
+- **Concurrencia**: el adaptador de persistencia traduce el bloqueo optimista y el bloqueo duplicado
+  a `ConcurrentVehicleUpdateException` (sin Spring). Solo `ChangeToMaintenanceService` reintenta una
+  vez en una transacción nueva; si el reintento también choca, `GlobalExceptionHandler` lo responde
+  como 503 con un log WARN. `UpdateVehicleService` y `DeleteVehicleService` no reintentan: ante un
+  conflicto responden 503. Evaluar reintento o 409 en una HU futura.
 
 ## Pendiente para el Sprint 1
 

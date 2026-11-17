@@ -131,6 +131,14 @@ class VehicleValidationRulesTest {
     }
 
     @Test
+    void validateNewVehicle_odometerWithMoreThanOneDecimal_isInvalidFormat() {
+        assertThat(errorsOfNew("ABC123", VehicleType.CAR, validDetails(), new BigDecimal("15200.55")))
+                .containsExactly(new FieldError("odometer_km", "INVALID_FORMAT"));
+        assertThatCode(() -> VehicleValidationRules.validateNewVehicle("ABC123", VehicleType.CAR,
+                validDetails(), new BigDecimal("15200.50"), YEAR)).doesNotThrowAnyException();
+    }
+
+    @Test
     void validateDetails_valid_doesNotThrow() {
         assertThatCode(() -> VehicleValidationRules.validateDetails(validDetails(), YEAR))
                 .doesNotThrowAnyException();

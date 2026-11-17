@@ -15,8 +15,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.dao.RecoverableDataAccessException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.transaction.CannotCreateTransactionException;
 
 class GlobalExceptionHandlerTest {
 
@@ -53,6 +57,25 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode().value()).isEqualTo(500);
         assertThat(response.getBody().code()).isEqualTo("INTERNAL_ERROR");
         assertThat(response.getBody().message()).doesNotContain("secret");
+    }
+
+    static Stream<Exception> databaseFailures() {
+        return Stream.of(new DataAccessResourceFailureException("secret connection detail"),
+                new QueryTimeoutException("secret connection detail"),
+                new RecoverableDataAccessException("secret connection detail"),
+                new CannotCreateTransactionException("secret connection detail"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("databaseFailures")
+    void handleDatabaseUnavailable_returns503WithoutInternalDetails(Exception exception) {
+        ResponseEntity<ApiErrorResponse> response = handler.handleDatabaseUnavailable(exception, request);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(503);
+        assertThat(response.getBody().code()).isEqualTo("SERVICE_UNAVAILABLE");
+        assertThat(response.getBody().message()).doesNotContain("secret");
+        assertThat(response.getBody().path()).isEqualTo("/vehicles/x/status");
+        assertThat(response.getBody().errors()).isNull();
     }
 
     @Test

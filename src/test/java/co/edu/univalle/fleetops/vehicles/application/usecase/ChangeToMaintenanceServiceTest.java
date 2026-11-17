@@ -118,6 +118,15 @@ class ChangeToMaintenanceServiceTest {
     }
 
     @Test
+    void execute_unknownVehicleAndOtherStatus_throwsNotFoundBeforeStatusNotAllowed() {
+        UUID id = UUID.randomUUID();
+        when(vehicles.findById(id)).thenReturn(Optional.empty());
+        var command = new ChangeToMaintenanceCommand(id, VehicleStatus.ACTIVE, UUID.randomUUID());
+
+        assertThatThrownBy(() -> service.execute(command)).isInstanceOf(VehicleNotFoundException.class);
+    }
+
+    @Test
     void execute_deletedVehicle_throwsNotFound() {
         Vehicle vehicle = activeVehicle();
         vehicle.markDeleted(NOW);

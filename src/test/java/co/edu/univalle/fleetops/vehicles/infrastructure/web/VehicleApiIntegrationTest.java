@@ -1,5 +1,6 @@
 package co.edu.univalle.fleetops.vehicles.infrastructure.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -11,6 +12,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import co.edu.univalle.fleetops.vehicles.infrastructure.support.PostgresIntegrationTest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -40,8 +48,12 @@ class VehicleApiIntegrationTest extends PostgresIntegrationTest {
     void postThenGet_createsVehicleAndReturnsContractShape() throws Exception {
         var created = mvc.perform(post("/vehicles").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.vehicle_id", matchesPattern(UUID_PATTERN)))
                 .andExpect(jsonPath("$.plate").value("ABC123"))
                 .andExpect(jsonPath("$.vehicle_type").value("PICKUP_TRUCK"))
+                .andExpect(jsonPath("$.model").value("Hilux"))
+                .andExpect(jsonPath("$.year").value(2023))
+                .andExpect(jsonPath("$.color").value("White"))
                 .andExpect(jsonPath("$.odometer_km").value(15200.0))
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.active_blocks", hasSize(0)))
@@ -75,6 +87,49 @@ class VehicleApiIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.timestamp", matchesPattern(".*-05:00$")))
                 .andExpect(jsonPath("$.status").doesNotExist())
                 .andExpect(jsonPath("$.errors").doesNotExist());
+    }
+
+    @Test
+    void post_samePlateConcurrently_exactlyOneIsCreatedAndTheOther409() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        Callable<Integer> request = () -> {
+            start.await();
+            return mvc.perform(post("/vehicles").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                    .andReturn().getResponse().getStatus();
+        };
+        try {
+            Future<Integer> first = pool.submit(request);
+            Future<Integer> second = pool.submit(request);
+            start.countDown();
+
+            assertThat(List.of(first.get(30, TimeUnit.SECONDS), second.get(30, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(201, 409);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void post_statusInBody_isIgnoredAndVehicleStartsActive() throws Exception {
+        String bodyWithStatus = VALID_BODY.replace("\"odometer_km\": 15200",
+                "\"odometer_km\": 15200, \"status\": \"BLOCKED\"");
+
+        mvc.perform(post("/vehicles").contentType(MediaType.APPLICATION_JSON).content(bodyWithStatus))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.active_blocks", hasSize(0)));
+    }
+
+    @Test
+    void post_odometerWithTwoDecimals_returns400InvalidFormat() throws Exception {
+        mvc.perform(post("/vehicles").contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY.replace("15200", "15200.55")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors", hasSize(1)))
+                .andExpect(jsonPath("$.errors[0].field").value("odometer_km"))
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_FORMAT"));
     }
 
     @Test

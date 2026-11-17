@@ -1,5 +1,6 @@
 package co.edu.univalle.fleetops.vehicles.infrastructure.web.error;
 
+import co.edu.univalle.fleetops.vehicles.application.exception.ConcurrentVehicleUpdateException;
 import co.edu.univalle.fleetops.vehicles.domain.exception.DomainException;
 import co.edu.univalle.fleetops.vehicles.domain.exception.ValidationException;
 import com.fasterxml.jackson.databind.JsonMappingException;
@@ -125,6 +126,23 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleDatabaseUnavailable(Exception exception,
             HttpServletRequest request) {
         LOG.error("Database unavailable on {}", request.getRequestURI().replaceAll("[\r\n]", "_"), exception);
+        return build(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE",
+                "Service temporarily unavailable, please try again", request, null);
+    }
+
+    /**
+     * Otra petición modificó el mismo vehículo y el reintento del caso de uso también chocó: se registra
+     * con nivel WARN, porque es un conflicto esperable y no una falla, y se responde 503 para que el
+     * cliente reintente.
+     *
+     * @param exception conflicto detectado al guardar
+     * @param request petición en curso
+     * @return 503 {@code SERVICE_UNAVAILABLE}, sin detalles internos
+     */
+    @ExceptionHandler(ConcurrentVehicleUpdateException.class)
+    public ResponseEntity<ApiErrorResponse> handleConcurrentUpdate(ConcurrentVehicleUpdateException exception,
+            HttpServletRequest request) {
+        LOG.warn("Concurrent update conflict on {}", request.getRequestURI().replaceAll("[\r\n]", "_"));
         return build(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE",
                 "Service temporarily unavailable, please try again", request, null);
     }

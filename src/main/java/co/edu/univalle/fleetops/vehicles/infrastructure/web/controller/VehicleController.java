@@ -105,7 +105,7 @@ public class VehicleController {
 
     private static UUID parseId(String rawId) {
         try {
-            return UUID.fromString(rawId);
+            return VehicleWebMapper.parseUuid(rawId);
         } catch (IllegalArgumentException e) {
             throw new InvalidVehicleIdException(rawId);
         }

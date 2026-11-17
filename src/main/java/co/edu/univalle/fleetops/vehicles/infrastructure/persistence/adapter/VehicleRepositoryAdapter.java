@@ -3,6 +3,7 @@ package co.edu.univalle.fleetops.vehicles.infrastructure.persistence.adapter;
 import co.edu.univalle.fleetops.vehicles.infrastructure.persistence.entity.VehicleEntity;
 import co.edu.univalle.fleetops.vehicles.infrastructure.persistence.mapper.VehicleMapper;
 import co.edu.univalle.fleetops.vehicles.infrastructure.persistence.repository.VehicleJpaRepository;
+import co.edu.univalle.fleetops.vehicles.application.exception.ConcurrentVehicleUpdateException;
 import co.edu.univalle.fleetops.vehicles.application.port.out.VehicleRepository;
 import co.edu.univalle.fleetops.vehicles.application.result.PageResult;
 import co.edu.univalle.fleetops.vehicles.domain.exception.PlateAlreadyExistsException;
@@ -13,11 +14,13 @@ import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -30,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class VehicleRepositoryAdapter implements VehicleRepository {
 
     private static final String UNIQUE_PLATE_INDEX = "ux_vehicle_plate_active";
+    private static final List<String> BLOCK_CONSTRAINTS = List.of("pk_vehicle_block", "uq_vehicle_block_key");
     private static final Sort STABLE_ORDER = Sort.by("createdAt", "id");
 
     private final VehicleJpaRepository jpa;
@@ -53,9 +57,15 @@ public class VehicleRepositoryAdapter implements VehicleRepository {
         mapper.copyTo(vehicle, entity);
         try {
             return mapper.toDomain(jpa.saveAndFlush(entity));
+        } catch (OptimisticLockingFailureException e) {
+            throw new ConcurrentVehicleUpdateException(e);
         } catch (DataIntegrityViolationException e) {
             if (isPlateViolation(e)) {
                 throw new PlateAlreadyExistsException(vehicle.plate());
+            }
+            if (isBlockViolation(e)) {
+                // Otra petición ya insertó el mismo bloqueo: el bloqueo tiene id determinista
+                throw new ConcurrentVehicleUpdateException(e);
             }
             throw e;
         }
@@ -112,6 +122,12 @@ public class VehicleRepositoryAdapter implements VehicleRepository {
             }
             return builder.and(predicates.toArray(new Predicate[0]));
         };
+    }
+
+    private static boolean isBlockViolation(DataIntegrityViolationException exception) {
+        return exception.getCause() instanceof ConstraintViolationException violation
+                && violation.getConstraintName() != null
+                && BLOCK_CONSTRAINTS.contains(violation.getConstraintName().toLowerCase(Locale.ROOT));
     }
 
     private static boolean isPlateViolation(DataIntegrityViolationException exception) {

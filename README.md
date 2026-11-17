@@ -130,8 +130,9 @@ traduce HTTP ↔ caso de uso: nada de reglas de negocio ni validaciones (eso viv
    código de error nuevo, agréguenlo a `STATUS_BY_CODE`.
 5. **DTO** — `infrastructure/web/dto/CreateVehicleRequest.java` y `VehicleResponse.java`: `record`
    en camelCase; Jackson los publica en snake_case (`vehicle_type`). Las fechas de respuesta salen
-   en GMT-5 (`VehicleWebMapper`). Los ids de ruta se reciben como `String` y, si no son UUID,
-   responden 404 (`parseId` en el controller). Los campos no editables (`NOT_EDITABLE`) los
+   en GMT-5 (`VehicleWebMapper`). Los ids de ruta se reciben como `String` y, si no son un UUID
+   canónico (`VehicleWebMapper.parseUuid`, también para los UUID del body), responden 404 (`parseId`
+   en el controller). Los campos no editables (`NOT_EDITABLE`) los
    detecta la capa REST. Si el body trae campos que hay que validar todos a la vez, el DTO los
    recibe como `String` y el mapper los convierte y lanza un solo `ValidationException` con todos
    los errores (ver `ChangeStatusRequest` y `VehicleWebMapper.toCommand`).
@@ -195,8 +196,11 @@ nivel ERROR.
 
 ## Deuda técnica
 
-- `OptimisticLockingFailureException` responde 503: hereda de `TransientDataAccessException` y la
-  captura el manejador de base de datos no disponible. Evaluar 409 en una HU futura.
+- **Concurrencia**: el adaptador de persistencia traduce el bloqueo optimista y el bloqueo duplicado
+  a `ConcurrentVehicleUpdateException` (sin Spring). Solo `ChangeToMaintenanceService` reintenta una
+  vez en una transacción nueva; si el reintento también choca, `GlobalExceptionHandler` lo responde
+  como 503 con un log WARN. `UpdateVehicleService` y `DeleteVehicleService` no reintentan: ante un
+  conflicto responden 503. Evaluar reintento o 409 en una HU futura.
 
 ## Pendiente para el Sprint 1
 

@@ -16,6 +16,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -129,6 +130,44 @@ class VehicleMaintenanceApiIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.errors[0].field").value("maintenance_id"))
                 .andExpect(jsonPath("$.errors[0].code").value("INVALID_FORMAT"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1-2-3-4-5", "1-1-1-1-1"})
+    void put_abbreviatedMaintenanceId_returns400InvalidFormat(String maintenanceId) throws Exception {
+        String id = createVehicle("MNT015");
+
+        putStatus(id, "{\"status\": \"IN_MAINTENANCE\", \"maintenance_id\": \"" + maintenanceId + "\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors", hasSize(1)))
+                .andExpect(jsonPath("$.errors[0].field").value("maintenance_id"))
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_FORMAT"));
+        assertThat(blockRows(id)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1-2-3-4-5", "1-1-1-1-1"})
+    void routeWithAbbreviatedId_returns404OnPutAndGet(String abbreviatedId) throws Exception {
+        putStatus(abbreviatedId, maintenanceBody("IN_MAINTENANCE", UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("VEHICLE_NOT_FOUND"));
+        mvc.perform(get("/vehicles/" + abbreviatedId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("VEHICLE_NOT_FOUND"));
+    }
+
+    @Test
+    void put_uppercaseUuidsInRouteAndBody_stillWork() throws Exception {
+        String id = createVehicle("MNT016");
+        UUID maintenanceId = UUID.randomUUID();
+
+        putStatus(id.toUpperCase(), "{\"status\": \"IN_MAINTENANCE\", \"maintenance_id\": \""
+                + maintenanceId.toString().toUpperCase() + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.vehicle_id").value(id))
+                .andExpect(jsonPath("$.active_blocks[0].block_key").value("MAINTENANCE:" + maintenanceId));
+        mvc.perform(get("/vehicles/" + id.toUpperCase())).andExpect(status().isOk());
     }
 
     @Test

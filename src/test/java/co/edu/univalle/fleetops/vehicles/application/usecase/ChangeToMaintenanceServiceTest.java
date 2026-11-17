@@ -8,11 +8,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import co.edu.univalle.fleetops.vehicles.application.command.ChangeToMaintenanceCommand;
+import co.edu.univalle.fleetops.vehicles.application.exception.ConcurrentVehicleUpdateException;
 import co.edu.univalle.fleetops.vehicles.application.port.out.StatusHistoryRepository;
 import co.edu.univalle.fleetops.vehicles.application.port.out.VehicleRepository;
 import co.edu.univalle.fleetops.vehicles.application.result.VehicleResult;
@@ -136,5 +138,81 @@ class ChangeToMaintenanceServiceTest {
         assertThatThrownBy(() -> service.execute(command)).isInstanceOf(VehicleNotFoundException.class);
 
         verify(vehicles, never()).save(any());
+    }
+
+    private static Vehicle reloadedCopyOf(Vehicle vehicle) {
+        return Vehicle.restore(vehicle.id(), vehicle.plate(), vehicle.type(), vehicle.details(),
+                vehicle.odometerKm(), vehicle.status(), vehicle.blocks(), vehicle.activeRouteId(),
+                vehicle.isDeleted(), vehicle.createdAt(), vehicle.updatedAt());
+    }
+
+    @Test
+    void execute_conflictOnSaveAndReloadShowsSameMaintenance_returnsIdempotentResult() {
+        Vehicle firstRead = activeVehicle();
+        Vehicle reloaded = reloadedCopyOf(firstRead);
+        UUID maintenanceId = UUID.randomUUID();
+        reloaded.startMaintenance(maintenanceId, NOW);
+        when(vehicles.findById(firstRead.id())).thenReturn(Optional.of(firstRead), Optional.of(reloaded));
+        when(vehicles.save(any(Vehicle.class))).thenThrow(new ConcurrentVehicleUpdateException(new RuntimeException()));
+
+        VehicleResult result = service.execute(
+                new ChangeToMaintenanceCommand(firstRead.id(), VehicleStatus.IN_MAINTENANCE, maintenanceId));
+
+        assertThat(result.status()).isEqualTo(VehicleStatus.IN_MAINTENANCE);
+        assertThat(result.activeBlocks()).singleElement()
+                .satisfies(block -> assertThat(block.blockKey()).isEqualTo("MAINTENANCE:" + maintenanceId));
+        verify(vehicles, times(2)).findById(firstRead.id());
+        verify(vehicles, times(1)).save(any(Vehicle.class));
+        verifyNoInteractions(history);
+    }
+
+    @Test
+    void execute_conflictOnSaveAndReloadShowsOtherMaintenance_throwsInvalidTransition() {
+        Vehicle firstRead = activeVehicle();
+        Vehicle reloaded = reloadedCopyOf(firstRead);
+        reloaded.startMaintenance(UUID.randomUUID(), NOW);
+        when(vehicles.findById(firstRead.id())).thenReturn(Optional.of(firstRead), Optional.of(reloaded));
+        when(vehicles.save(any(Vehicle.class))).thenThrow(new ConcurrentVehicleUpdateException(new RuntimeException()));
+        var command = new ChangeToMaintenanceCommand(firstRead.id(), VehicleStatus.IN_MAINTENANCE, UUID.randomUUID());
+
+        assertThatThrownBy(() -> service.execute(command)).isInstanceOf(InvalidStatusTransitionException.class);
+
+        verify(vehicles, times(1)).save(any(Vehicle.class));
+        verifyNoInteractions(history);
+    }
+
+    @Test
+    void execute_conflictOnSaveAndReloadStillActive_appliesTheChangeOnTheRetry() {
+        Vehicle firstRead = activeVehicle();
+        Vehicle reloaded = reloadedCopyOf(firstRead);
+        UUID maintenanceId = UUID.randomUUID();
+        when(vehicles.findById(firstRead.id())).thenReturn(Optional.of(firstRead), Optional.of(reloaded));
+        when(vehicles.save(any(Vehicle.class)))
+                .thenThrow(new ConcurrentVehicleUpdateException(new RuntimeException()))
+                .then(returnsFirstArg());
+
+        VehicleResult result = service.execute(
+                new ChangeToMaintenanceCommand(firstRead.id(), VehicleStatus.IN_MAINTENANCE, maintenanceId));
+
+        assertThat(result.status()).isEqualTo(VehicleStatus.IN_MAINTENANCE);
+        verify(vehicles, times(2)).save(any(Vehicle.class));
+        ArgumentCaptor<StatusHistoryEntry> entry = ArgumentCaptor.forClass(StatusHistoryEntry.class);
+        verify(history, times(1)).save(entry.capture());
+        assertThat(entry.getValue().sourceId()).isEqualTo(maintenanceId.toString());
+    }
+
+    @Test
+    void execute_conflictOnTheRetryToo_propagatesAfterOnlyOneRetry() {
+        Vehicle firstRead = activeVehicle();
+        Vehicle reloaded = reloadedCopyOf(firstRead);
+        when(vehicles.findById(firstRead.id())).thenReturn(Optional.of(firstRead), Optional.of(reloaded));
+        when(vehicles.save(any(Vehicle.class))).thenThrow(new ConcurrentVehicleUpdateException(new RuntimeException()));
+        var command = new ChangeToMaintenanceCommand(firstRead.id(), VehicleStatus.IN_MAINTENANCE, UUID.randomUUID());
+
+        assertThatThrownBy(() -> service.execute(command)).isInstanceOf(ConcurrentVehicleUpdateException.class);
+
+        verify(vehicles, times(2)).findById(firstRead.id());
+        verify(vehicles, times(2)).save(any(Vehicle.class));
+        verifyNoInteractions(history);
     }
 }

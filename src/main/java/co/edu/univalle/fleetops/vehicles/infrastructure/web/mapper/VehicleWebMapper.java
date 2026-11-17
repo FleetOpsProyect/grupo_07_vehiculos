@@ -16,6 +16,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /** Convierte entre los DTO HTTP y los comandos y resultados de la aplicación. */
 public final class VehicleWebMapper {
@@ -23,6 +24,8 @@ public final class VehicleWebMapper {
     private static final ZoneOffset GMT_MINUS_5 = ZoneOffset.of("-05:00");
     private static final String REQUIRED = "REQUIRED";
     private static final String INVALID_FORMAT = "INVALID_FORMAT";
+    private static final Pattern CANONICAL_UUID = Pattern.compile(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
     private VehicleWebMapper() {
     }
@@ -72,6 +75,22 @@ public final class VehicleWebMapper {
                 inBogota(result.updatedAt()));
     }
 
+    /**
+     * Convierte un texto en UUID exigiendo el formato canónico completo (8-4-4-4-12). Es la única
+     * validación de UUID de la capa REST: {@link UUID#fromString(String)} por sí sola acepta textos
+     * abreviados como {@code 1-2-3-4-5} y los normaliza.
+     *
+     * @param raw texto recibido en la ruta o en el cuerpo
+     * @return el UUID, con mayúsculas o minúsculas
+     * @throws IllegalArgumentException si el texto es nulo o no tiene el formato canónico
+     */
+    public static UUID parseUuid(String raw) {
+        if (raw == null || !CANONICAL_UUID.matcher(raw).matches()) {
+            throw new IllegalArgumentException("Not a canonical UUID");
+        }
+        return UUID.fromString(raw);
+    }
+
     private static VehicleStatus parseStatus(String raw, List<FieldError> errors) {
         if (raw == null || raw.isBlank()) {
             errors.add(new FieldError("status", REQUIRED));
@@ -91,7 +110,7 @@ public final class VehicleWebMapper {
             return null;
         }
         try {
-            return UUID.fromString(raw);
+            return parseUuid(raw);
         } catch (IllegalArgumentException e) {
             errors.add(new FieldError("maintenance_id", INVALID_FORMAT));
             return null;

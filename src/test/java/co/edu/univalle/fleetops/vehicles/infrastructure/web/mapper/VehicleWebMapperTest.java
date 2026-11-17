@@ -71,13 +71,40 @@ class VehicleWebMapperTest {
                         .containsExactly(new FieldError("maintenance_id", "REQUIRED")));
     }
 
-    @Test
-    void toCommand_maintenanceIdThatIsNotUuid_reportsInvalidFormat() {
-        var request = new ChangeStatusRequest("IN_MAINTENANCE", "not-a-uuid");
+    @ParameterizedTest
+    @ValueSource(strings = {"not-a-uuid", "1-2-3-4-5", "1-1-1-1-1"})
+    void toCommand_maintenanceIdThatIsNotCanonicalUuid_reportsInvalidFormat(String maintenanceId) {
+        var request = new ChangeStatusRequest("IN_MAINTENANCE", maintenanceId);
 
         assertThatThrownBy(() -> VehicleWebMapper.toCommand(VEHICLE_ID, request))
                 .isInstanceOfSatisfying(ValidationException.class, error -> assertThat(error.errors())
                         .containsExactly(new FieldError("maintenance_id", "INVALID_FORMAT")));
+    }
+
+    @Test
+    void toCommand_uppercaseMaintenanceId_isValid() {
+        var request = new ChangeStatusRequest("IN_MAINTENANCE", MAINTENANCE_ID.toString().toUpperCase());
+
+        ChangeToMaintenanceCommand command = VehicleWebMapper.toCommand(VEHICLE_ID, request);
+
+        assertThat(command.maintenanceId()).isEqualTo(MAINTENANCE_ID);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"3fa85f64-5717-4562-b3fc-2c963f66afa6", "3FA85F64-5717-4562-B3FC-2C963F66AFA6",
+        "00000000-0000-0000-0000-000000000000"})
+    void parseUuid_canonicalFormat_returnsTheUuid(String raw) {
+        assertThat(VehicleWebMapper.parseUuid(raw)).isEqualTo(UUID.fromString(raw));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"1-2-3-4-5", "1-1-1-1-1", "not-a-uuid", " 3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "3fa85f64-5717-4562-b3fc-2c963f66afa6 ", "3fa85f64-5717-4562-b3fc-2c963f66afa6\n",
+        "3fa85f6457174562b3fc2c963f66afa6", "3fa85f64-5717-4562-b3fc-2c963f66afa",
+        "3fa85f64-5717-4562-b3fc-2c963f66afag"})
+    void parseUuid_anyOtherText_throws(String raw) {
+        assertThatThrownBy(() -> VehicleWebMapper.parseUuid(raw)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

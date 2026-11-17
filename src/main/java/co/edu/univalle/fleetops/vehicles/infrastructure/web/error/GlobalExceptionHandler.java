@@ -11,9 +11,13 @@ import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -106,6 +110,23 @@ public class GlobalExceptionHandler {
             HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "The request has invalid fields", request,
                 List.of(new FieldErrorResponse(toSnakeCase(exception.getName()), "INVALID_FORMAT")));
+    }
+
+    /**
+     * Base de datos caída o sin conexión: se registra con nivel ERROR y se responde 503 para que el
+     * cliente sepa que puede reintentar. Las violaciones de restricciones no entran aquí.
+     *
+     * @param exception falla de acceso a la base de datos
+     * @param request petición en curso
+     * @return 503 {@code SERVICE_UNAVAILABLE}, sin detalles internos
+     */
+    @ExceptionHandler({DataAccessResourceFailureException.class, TransientDataAccessException.class,
+        RecoverableDataAccessException.class, CannotCreateTransactionException.class})
+    public ResponseEntity<ApiErrorResponse> handleDatabaseUnavailable(Exception exception,
+            HttpServletRequest request) {
+        LOG.error("Database unavailable on {}", request.getRequestURI().replaceAll("[\r\n]", "_"), exception);
+        return build(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE",
+                "Service temporarily unavailable, please try again", request, null);
     }
 
     /**

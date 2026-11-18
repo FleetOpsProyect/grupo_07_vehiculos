@@ -3,9 +3,11 @@ package co.edu.univalle.fleetops.vehicles.infrastructure.web.mapper;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.BlockResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.ChangeStatusRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.CreateVehicleRequest;
+import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.UpdateVehicleRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.VehicleResponse;
 import co.edu.univalle.fleetops.vehicles.application.command.ChangeToMaintenanceCommand;
 import co.edu.univalle.fleetops.vehicles.application.command.RegisterVehicleCommand;
+import co.edu.univalle.fleetops.vehicles.application.command.UpdateVehicleCommand;
 import co.edu.univalle.fleetops.vehicles.application.result.BlockResult;
 import co.edu.univalle.fleetops.vehicles.application.result.VehicleResult;
 import co.edu.univalle.fleetops.vehicles.domain.exception.FieldError;
@@ -26,6 +28,8 @@ public final class VehicleWebMapper {
     private static final String INVALID_FORMAT = "INVALID_FORMAT";
     private static final Pattern CANONICAL_UUID = Pattern.compile(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+    private static final List<String> NON_EDITABLE_FIELDS = List.of(
+        "plate", "vehicle_type", "odometer_km", "status");
 
     private VehicleWebMapper() {
     }
@@ -59,6 +63,27 @@ public final class VehicleWebMapper {
             throw new ValidationException(errors);
         }
         return new ChangeToMaintenanceCommand(vehicleId, status, maintenanceId);
+    }
+
+    /**
+     * Convierte el cuerpo de PUT /vehicles/{id} en un comando. Si el body incluye campos no editables
+     * ({@code plate}, {@code vehicle_type}, {@code odometer_km}, {@code status}), responde 400
+     * {@code VALIDATION_ERROR} con {@code NOT_EDITABLE} por cada uno.
+     *
+     * @param vehicleId id del vehículo, ya validado como UUID
+     * @param request cuerpo recibido
+     * @return el comando para el caso de uso
+     * @throws ValidationException si se enviaron campos no editables
+     */
+    public static UpdateVehicleCommand toCommand(UUID vehicleId, UpdateVehicleRequest request) {
+        List<FieldError> errors = new ArrayList<>();
+        for (String forbiddenField : NON_EDITABLE_FIELDS) {
+            if (request.extraFields().containsKey(forbiddenField)) {
+                errors.add(new FieldError(forbiddenField, "NOT_EDITABLE"));
+            }
+        }
+        return new UpdateVehicleCommand(vehicleId, request.brand(), request.model(), request.year(),
+                request.color(), request.notes(), List.copyOf(errors));
     }
 
     /**

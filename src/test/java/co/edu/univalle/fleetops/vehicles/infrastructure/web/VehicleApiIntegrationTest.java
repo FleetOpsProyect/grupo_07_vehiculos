@@ -227,4 +227,118 @@ class VehicleApiIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.active_blocks[0].type").value("MAINTENANCE"))
                 .andExpect(jsonPath("$.active_blocks[0].source_id").value(maintenanceId));
     }
+
+    @Test
+    void put_validPayload_updatesEditableFieldsWithoutChangingIdentityOrStatus() throws Exception {
+        JsonNode created = objectMapper.readTree(postVehicle(VALID_BODY));
+        String id = created.get("vehicle_id").asText();
+        String maintenanceId = "11111111-1111-1111-1111-111111111111";
+
+        // Pasamos el vehículo a IN_MAINTENANCE para verificar que ni el estado ni los bloqueos cambian
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/vehicles/" + id + "/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\": \"IN_MAINTENANCE\", \"maintenance_id\": \"" + maintenanceId + "\"}"))
+                .andExpect(status().isOk());
+
+        String updateBody = """
+                {"brand": "Ford", "model": "Ranger", "year": 2025, "color": "Black", "notes": "Updated notes"}""";
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/vehicles/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.vehicle_id").value(id))
+                .andExpect(jsonPath("$.plate").value("ABC123"))
+                .andExpect(jsonPath("$.vehicle_type").value("PICKUP_TRUCK"))
+                .andExpect(jsonPath("$.brand").value("Ford"))
+                .andExpect(jsonPath("$.model").value("Ranger"))
+                .andExpect(jsonPath("$.year").value(2025))
+                .andExpect(jsonPath("$.color").value("Black"))
+                .andExpect(jsonPath("$.notes").value("Updated notes"))
+                .andExpect(jsonPath("$.odometer_km").value(15200.0))
+                .andExpect(jsonPath("$.status").value("IN_MAINTENANCE"))
+                .andExpect(jsonPath("$.active_blocks", hasSize(1)))
+                .andExpect(jsonPath("$.created_at", matchesPattern(".*-05:00$")))
+                .andExpect(jsonPath("$.updated_at", matchesPattern(".*-05:00$")));
+    }
+
+    @Test
+    void put_invalidFields_returns400ListingEveryField() throws Exception {
+        JsonNode created = objectMapper.readTree(postVehicle(VALID_BODY));
+        String id = created.get("vehicle_id").asText();
+
+        String invalidUpdate = """
+                {"brand": "T", "model": "", "year": 1979, "color": "1234567890123456789012345678901"}""";
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/vehicles/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(invalidUpdate))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.status").doesNotExist())
+                .andExpect(jsonPath("$.errors", hasSize(4)));
+    }
+
+    @Test
+    void put_nonEditableFields_returns400NotEditableAndDoesNotModifyVehicle() throws Exception {
+        JsonNode created = objectMapper.readTree(postVehicle(VALID_BODY));
+        String id = created.get("vehicle_id").asText();
+
+        String bodyWithForbiddenFields = """
+                {"brand": "Ford", "model": "Ranger", "year": 2025, "plate": "XYZ999",
+                 "vehicle_type": "CAR", "odometer_km": 99999, "status": "IN_MAINTENANCE"}""";
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/vehicles/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bodyWithForbiddenFields))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.status").doesNotExist())
+                .andExpect(jsonPath("$.errors", hasSize(4)))
+                .andExpect(jsonPath("$.errors[?(@.field=='plate')].code").value("NOT_EDITABLE"))
+                .andExpect(jsonPath("$.errors[?(@.field=='vehicle_type')].code").value("NOT_EDITABLE"))
+                .andExpect(jsonPath("$.errors[?(@.field=='odometer_km')].code").value("NOT_EDITABLE"))
+                .andExpect(jsonPath("$.errors[?(@.field=='status')].code").value("NOT_EDITABLE"));
+
+        // Verificamos que en BD no cambió nada
+        mvc.perform(get("/vehicles/" + id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.brand").value("Toyota"))
+                .andExpect(jsonPath("$.model").value("Hilux"))
+                .andExpect(jsonPath("$.plate").value("ABC123"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    @Test
+    void put_unknownUuid_returns404() throws Exception {
+        String validUpdate = """
+                {"brand": "Ford", "model": "Ranger", "year": 2025}""";
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/vehicles/3fa85f64-5717-4562-b3fc-2c963f66afa6")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validUpdate))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("VEHICLE_NOT_FOUND"))
+                .andExpect(jsonPath("$.status").doesNotExist());
+    }
+
+    @Test
+    void put_idThatIsNotUuid_returns404() throws Exception {
+        String validUpdate = """
+                {"brand": "Ford", "model": "Ranger", "year": 2025}""";
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/vehicles/not-a-uuid")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validUpdate))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("VEHICLE_NOT_FOUND"))
+                .andExpect(jsonPath("$.status").doesNotExist());
+    }
+
 }

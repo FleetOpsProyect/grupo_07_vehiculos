@@ -25,6 +25,11 @@ public record UpdateVehicleCommand(
         String notes,
         List<FieldError> preValidationErrors) {
 
+    /** Normaliza la lista de errores previos para evitar nulos. */
+    public UpdateVehicleCommand {
+        preValidationErrors = preValidationErrors == null ? List.of() : List.copyOf(preValidationErrors);
+    }
+
     /**
      * Crea el comando sin errores previos de validación.
      *

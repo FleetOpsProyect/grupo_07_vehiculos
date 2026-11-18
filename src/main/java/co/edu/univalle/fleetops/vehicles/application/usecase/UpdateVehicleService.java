@@ -46,10 +46,7 @@ public class UpdateVehicleService implements UpdateVehicleUseCase {
             VehicleDetails details = new VehicleDetails(command.brand(), command.model(), command.year(),
                     command.color(), command.notes());
             
-            List<FieldError> errors = new ArrayList<>();
-            if (command.preValidationErrors() != null) {
-                errors.addAll(command.preValidationErrors());
-            }
+            List<FieldError> errors = new ArrayList<>(command.preValidationErrors());
             try {
                 VehicleValidationRules.validateDetails(details, Year.now(clock).getValue());
             } catch (ValidationException e) {

@@ -2,6 +2,7 @@ package co.edu.univalle.fleetops.vehicles.infrastructure.web.controller;
 
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.ChangeStatusRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.CreateVehicleRequest;
+import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.UpdateVehicleRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.VehicleResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.error.ApiErrorResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.error.InvalidVehicleIdException;
@@ -9,6 +10,7 @@ import co.edu.univalle.fleetops.vehicles.infrastructure.web.mapper.VehicleWebMap
 import co.edu.univalle.fleetops.vehicles.application.port.in.ChangeToMaintenanceUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.GetVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.RegisterVehicleUseCase;
+import co.edu.univalle.fleetops.vehicles.application.port.in.UpdateVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.result.VehicleResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -37,6 +39,7 @@ public class VehicleController {
 
     private final RegisterVehicleUseCase registerVehicle;
     private final GetVehicleUseCase getVehicle;
+    private final UpdateVehicleUseCase updateVehicle;
     private final ChangeToMaintenanceUseCase changeToMaintenance;
 
     /**
@@ -44,12 +47,14 @@ public class VehicleController {
      *
      * @param registerVehicle caso de uso de alta
      * @param getVehicle caso de uso de detalle
+     * @param updateVehicle caso de uso de edicion
      * @param changeToMaintenance caso de uso de paso a mantenimiento
      */
     public VehicleController(RegisterVehicleUseCase registerVehicle, GetVehicleUseCase getVehicle,
-            ChangeToMaintenanceUseCase changeToMaintenance) {
+            UpdateVehicleUseCase updateVehicle, ChangeToMaintenanceUseCase changeToMaintenance) {
         this.registerVehicle = registerVehicle;
         this.getVehicle = getVehicle;
+        this.updateVehicle = updateVehicle;
         this.changeToMaintenance = changeToMaintenance;
     }
 
@@ -85,6 +90,27 @@ public class VehicleController {
             content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     public VehicleResponse get(@PathVariable String id) {
         return VehicleWebMapper.toResponse(getVehicle.execute(parseId(id)));
+    }
+
+    /**
+     * PUT /vehicles/{id}: reemplaza los campos editables de un vehículo. Un id que no es UUID responde 404.
+     *
+     * @param id id tal como llegó en la ruta
+     * @param request datos a reemplazar
+     * @return 200 con el vehículo completo
+     */
+    @PutMapping("/{id}")
+    @Operation(summary = "Edita marca, modelo, año, color y observaciones de un vehículo")
+    @ApiResponse(responseCode = "200", description = "Vehículo actualizado")
+    @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: campos inválidos o no editables",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "VEHICLE_NOT_FOUND: no existe, está eliminado o el id no es UUID",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "503", description = "SERVICE_UNAVAILABLE: base de datos no disponible",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    public VehicleResponse update(@PathVariable String id, @RequestBody UpdateVehicleRequest request) {
+        UUID vehicleId = parseId(id);
+        return VehicleWebMapper.toResponse(updateVehicle.execute(VehicleWebMapper.toCommand(vehicleId, request)));
     }
 
     /**

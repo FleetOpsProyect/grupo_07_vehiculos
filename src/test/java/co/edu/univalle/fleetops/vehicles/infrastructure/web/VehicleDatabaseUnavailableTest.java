@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import co.edu.univalle.fleetops.vehicles.application.port.in.ChangeToMaintenanceUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.GetVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.RegisterVehicleUseCase;
+import co.edu.univalle.fleetops.vehicles.application.port.in.UpdateVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.controller.VehicleController;
 import java.time.Clock;
 import java.time.Instant;
@@ -24,6 +25,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.http.MediaType;
 
 @WebMvcTest(VehicleController.class)
 class VehicleDatabaseUnavailableTest {
@@ -33,6 +35,9 @@ class VehicleDatabaseUnavailableTest {
 
     @MockitoBean
     private RegisterVehicleUseCase registerVehicle;
+
+    @MockitoBean
+    private UpdateVehicleUseCase updateVehicle;
 
     @MockitoBean
     private GetVehicleUseCase getVehicle;
@@ -66,4 +71,29 @@ class VehicleDatabaseUnavailableTest {
                 .andExpect(jsonPath("$.status").doesNotExist())
                 .andExpect(jsonPath("$.errors").doesNotExist());
     }
+
+    @Test
+    void put_databaseDown_returns503WithoutStatusField() throws Exception {
+        UUID id = UUID.fromString("3fa85f64-5717-4562-b3fc-2c963f66afa6");
+        String correlationId = "6f1c2b7e-3d4a-4b5c-9d6e-7f8a9b0c1d2e";
+        String body = """
+                {"brand": "Ford", "model": "Ranger", "year": 2025, "color": "Black", "notes": "Updated"}""";
+
+        when(updateVehicle.execute(any()))
+                .thenThrow(new DataAccessResourceFailureException("Connection refused"));
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/vehicles/" + id)
+                        .header("X-Correlation-Id", correlationId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("X-Correlation-Id", correlationId))
+                .andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.message").value("Service temporarily unavailable, please try again"))
+                .andExpect(jsonPath("$.path").value("/vehicles/" + id))
+                .andExpect(jsonPath("$.timestamp", matchesPattern(".*-05:00$")))
+                .andExpect(jsonPath("$.status").doesNotExist())
+                .andExpect(jsonPath("$.errors").doesNotExist());
+    }
+
 }

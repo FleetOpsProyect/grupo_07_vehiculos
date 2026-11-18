@@ -206,4 +206,25 @@ class VehicleApiIntegrationTest extends PostgresIntegrationTest {
                 .andExpect(jsonPath("$.paths['/vehicles']").exists())
                 .andExpect(jsonPath("$.paths['/vehicles/{id}']").exists());
     }
+
+    @Test
+    void get_vehicleInMaintenance_returns200WithActiveBlocks() throws Exception {
+        JsonNode created = objectMapper.readTree(postVehicle(VALID_BODY));
+        String id = created.get("vehicle_id").asText();
+        String maintenanceId = "11111111-1111-1111-1111-111111111111";
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/vehicles/" + id + "/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\": \"IN_MAINTENANCE\", \"maintenance_id\": \"" + maintenanceId + "\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/vehicles/" + id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.vehicle_id").value(id))
+                .andExpect(jsonPath("$.status").value("IN_MAINTENANCE"))
+                .andExpect(jsonPath("$.active_blocks", hasSize(1)))
+                .andExpect(jsonPath("$.active_blocks[0].type").value("MAINTENANCE"))
+                .andExpect(jsonPath("$.active_blocks[0].source_id").value(maintenanceId));
+    }
 }

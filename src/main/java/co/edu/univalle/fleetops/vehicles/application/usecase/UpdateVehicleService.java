@@ -9,9 +9,13 @@ import co.edu.univalle.fleetops.vehicles.domain.exception.VehicleNotFoundExcepti
 import co.edu.univalle.fleetops.vehicles.domain.model.Vehicle;
 import co.edu.univalle.fleetops.vehicles.domain.model.VehicleDetails;
 import co.edu.univalle.fleetops.vehicles.domain.rule.VehicleValidationRules;
+import co.edu.univalle.fleetops.vehicles.domain.exception.FieldError;
+import co.edu.univalle.fleetops.vehicles.domain.exception.ValidationException;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.Year;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Edición de marca, modelo, año, color y observaciones; un vehículo eliminado responde 404. */
 public class UpdateVehicleService implements UpdateVehicleUseCase {
@@ -41,7 +45,19 @@ public class UpdateVehicleService implements UpdateVehicleUseCase {
                     .orElseThrow(() -> new VehicleNotFoundException(command.vehicleId()));
             VehicleDetails details = new VehicleDetails(command.brand(), command.model(), command.year(),
                     command.color(), command.notes());
-            VehicleValidationRules.validateDetails(details, Year.now(clock).getValue());
+            
+            List<FieldError> errors = new ArrayList<>();
+            if (command.preValidationErrors() != null) {
+                errors.addAll(command.preValidationErrors());
+            }
+            try {
+                VehicleValidationRules.validateDetails(details, Year.now(clock).getValue());
+            } catch (ValidationException e) {
+                errors.addAll(e.errors());
+            }
+            if (!errors.isEmpty()) {
+                throw new ValidationException(errors);
+            }
             vehicle.update(details, OffsetDateTime.now(clock));
             return VehicleResult.from(vehicles.save(vehicle));
         });

@@ -82,11 +82,8 @@ public final class VehicleWebMapper {
                 errors.add(new FieldError(forbiddenField, "NOT_EDITABLE"));
             }
         }
-        if (!errors.isEmpty()) {
-            throw new ValidationException(errors);
-        }
         return new UpdateVehicleCommand(vehicleId, request.brand(), request.model(), request.year(),
-                request.color(), request.notes());
+                request.color(), request.notes(), List.copyOf(errors));
     }
 
     /**

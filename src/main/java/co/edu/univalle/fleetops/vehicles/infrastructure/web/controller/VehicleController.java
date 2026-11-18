@@ -3,6 +3,7 @@ package co.edu.univalle.fleetops.vehicles.infrastructure.web.controller;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.ChangeStatusRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.CreateVehicleRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.VehicleResponse;
+import co.edu.univalle.fleetops.vehicles.infrastructure.web.error.ApiErrorResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.error.InvalidVehicleIdException;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.mapper.VehicleWebMapper;
 import co.edu.univalle.fleetops.vehicles.application.port.in.ChangeToMaintenanceUseCase;
@@ -10,6 +11,8 @@ import co.edu.univalle.fleetops.vehicles.application.port.in.GetVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.RegisterVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.result.VehicleResult;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.net.URI;
@@ -76,7 +79,10 @@ public class VehicleController {
     @GetMapping("/{id}")
     @Operation(summary = "Detalle de un vehículo (estado, odómetro oficial, bloqueos)")
     @ApiResponse(responseCode = "200", description = "Vehículo encontrado")
-    @ApiResponse(responseCode = "404", description = "VEHICLE_NOT_FOUND")
+    @ApiResponse(responseCode = "404", description = "VEHICLE_NOT_FOUND: no existe o el id no es UUID",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "503", description = "SERVICE_UNAVAILABLE: base de datos no disponible",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     public VehicleResponse get(@PathVariable String id) {
         return VehicleWebMapper.toResponse(getVehicle.execute(parseId(id)));
     }

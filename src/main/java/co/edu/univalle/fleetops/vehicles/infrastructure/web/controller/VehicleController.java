@@ -3,16 +3,19 @@ package co.edu.univalle.fleetops.vehicles.infrastructure.web.controller;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.ChangeStatusRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.CreateVehicleRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.UpdateVehicleRequest;
+import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.VehiclePageResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.VehicleResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.error.ApiErrorResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.error.InvalidVehicleIdException;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.mapper.VehicleWebMapper;
 import co.edu.univalle.fleetops.vehicles.application.port.in.ChangeToMaintenanceUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.GetVehicleUseCase;
+import co.edu.univalle.fleetops.vehicles.application.port.in.ListVehiclesUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.RegisterVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.UpdateVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.result.VehicleResult;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -26,6 +29,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -39,6 +43,7 @@ public class VehicleController {
 
     private final RegisterVehicleUseCase registerVehicle;
     private final GetVehicleUseCase getVehicle;
+    private final ListVehiclesUseCase listVehicles;
     private final UpdateVehicleUseCase updateVehicle;
     private final ChangeToMaintenanceUseCase changeToMaintenance;
 
@@ -47,13 +52,16 @@ public class VehicleController {
      *
      * @param registerVehicle caso de uso de alta
      * @param getVehicle caso de uso de detalle
+     * @param listVehicles caso de uso de listado
      * @param updateVehicle caso de uso de edicion
      * @param changeToMaintenance caso de uso de paso a mantenimiento
      */
     public VehicleController(RegisterVehicleUseCase registerVehicle, GetVehicleUseCase getVehicle,
-            UpdateVehicleUseCase updateVehicle, ChangeToMaintenanceUseCase changeToMaintenance) {
+            ListVehiclesUseCase listVehicles, UpdateVehicleUseCase updateVehicle,
+            ChangeToMaintenanceUseCase changeToMaintenance) {
         this.registerVehicle = registerVehicle;
         this.getVehicle = getVehicle;
+        this.listVehicles = listVehicles;
         this.updateVehicle = updateVehicle;
         this.changeToMaintenance = changeToMaintenance;
     }
@@ -73,6 +81,36 @@ public class VehicleController {
         VehicleResult result = registerVehicle.execute(VehicleWebMapper.toCommand(request));
         return ResponseEntity.created(URI.create("/vehicles/" + result.vehicleId()))
                 .body(VehicleWebMapper.toResponse(result));
+    }
+
+    /**
+     * GET /vehicles: listado paginado con filtros opcionales y el conteo por estado de toda la flota.
+     * Los parámetros llegan como texto para que un 400 informe todos los inválidos a la vez.
+     *
+     * @param status filtro opcional por estado; DELETED no se acepta
+     * @param type filtro opcional por tipo
+     * @param page página desde 0; por defecto 0
+     * @param size tamaño de página de 1 a 100; por defecto 20
+     * @return 200 con la página y el bloque {@code summary}
+     */
+    @GetMapping
+    @Operation(summary = "Lista vehículos paginados, con filtros opcionales y el conteo por estado de la flota")
+    @ApiResponse(responseCode = "200", description = "Página de vehículos con summary")
+    @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: status, type, page o size inválidos",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "503", description = "SERVICE_UNAVAILABLE: base de datos no disponible",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    public VehiclePageResponse list(
+            @Parameter(description = "ACTIVE, ON_ROUTE, BLOCKED, IN_MAINTENANCE o INACTIVE_EXPIRED_DOCUMENTS")
+            @RequestParam(required = false) String status,
+            @Parameter(description = "CAR, PICKUP_TRUCK o SPECIALIZED_VEHICLE")
+            @RequestParam(required = false) String type,
+            @Parameter(description = "Página desde 0 (por defecto 0)")
+            @RequestParam(required = false) String page,
+            @Parameter(description = "Tamaño de página de 1 a 100 (por defecto 20)")
+            @RequestParam(required = false) String size) {
+        return VehicleWebMapper.toPageResponse(
+                listVehicles.execute(VehicleWebMapper.toQuery(status, type, page, size)));
     }
 
     /**

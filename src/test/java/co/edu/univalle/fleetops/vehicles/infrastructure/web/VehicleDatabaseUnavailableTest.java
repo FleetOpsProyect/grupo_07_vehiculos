@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import co.edu.univalle.fleetops.vehicles.application.port.in.ChangeToMaintenanceUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.GetVehicleUseCase;
+import co.edu.univalle.fleetops.vehicles.application.port.in.ListVehiclesUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.RegisterVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.UpdateVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.controller.VehicleController;
@@ -44,6 +45,9 @@ class VehicleDatabaseUnavailableTest {
 
     @MockitoBean
     private ChangeToMaintenanceUseCase changeToMaintenance;
+
+    @MockitoBean
+    private ListVehiclesUseCase listVehicles;
 
     @TestConfiguration
     static class ClockConfig {
@@ -96,4 +100,21 @@ class VehicleDatabaseUnavailableTest {
                 .andExpect(jsonPath("$.errors").doesNotExist());
     }
 
+    @Test
+    void list_databaseDown_returns503WithoutStatusField() throws Exception {
+        String correlationId = "6f1c2b7e-3d4a-4b5c-9d6e-7f8a9b0c1d2e";
+
+        when(listVehicles.execute(any()))
+                .thenThrow(new DataAccessResourceFailureException("Connection refused"));
+
+        mvc.perform(get("/vehicles").header("X-Correlation-Id", correlationId))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("X-Correlation-Id", correlationId))
+                .andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.message").value("Service temporarily unavailable, please try again"))
+                .andExpect(jsonPath("$.path").value("/vehicles"))
+                .andExpect(jsonPath("$.timestamp", matchesPattern(".*-05:00$")))
+                .andExpect(jsonPath("$.status").doesNotExist())
+                .andExpect(jsonPath("$.errors").doesNotExist());
+    }
 }

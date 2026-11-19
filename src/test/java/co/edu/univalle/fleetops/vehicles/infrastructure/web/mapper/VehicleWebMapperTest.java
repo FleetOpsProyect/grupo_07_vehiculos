@@ -4,10 +4,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import co.edu.univalle.fleetops.vehicles.application.command.ChangeToMaintenanceCommand;
+import co.edu.univalle.fleetops.vehicles.application.query.ListVehiclesQuery;
+import co.edu.univalle.fleetops.vehicles.application.result.VehiclePageResult;
+import co.edu.univalle.fleetops.vehicles.application.result.VehicleSummaryResult;
 import co.edu.univalle.fleetops.vehicles.domain.exception.FieldError;
 import co.edu.univalle.fleetops.vehicles.domain.exception.ValidationException;
 import co.edu.univalle.fleetops.vehicles.domain.model.VehicleStatus;
+import co.edu.univalle.fleetops.vehicles.domain.model.VehicleType;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.ChangeStatusRequest;
+import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.VehiclePageResponse;
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -125,5 +134,75 @@ class VehicleWebMapperTest {
                 .isInstanceOfSatisfying(ValidationException.class, error -> assertThat(error.errors())
                         .containsExactlyInAnyOrder(new FieldError("status", "REQUIRED"),
                                 new FieldError("maintenance_id", "REQUIRED")));
+    }
+
+    @Test
+    void toQuery_noParameters_usesDefaultsWithoutFilters() {
+        ListVehiclesQuery query = VehicleWebMapper.toQuery(null, null, null, null);
+
+        assertThat(query).isEqualTo(new ListVehiclesQuery(null, null, 0, 20, List.of()));
+    }
+
+    @Test
+    void toQuery_blankParameters_areTreatedAsMissing() {
+        ListVehiclesQuery query = VehicleWebMapper.toQuery("", " ", "", " ");
+
+        assertThat(query).isEqualTo(new ListVehiclesQuery(null, null, 0, 20, List.of()));
+    }
+
+    @Test
+    void toQuery_validParameters_areParsed() {
+        ListVehiclesQuery query = VehicleWebMapper.toQuery("IN_MAINTENANCE", "PICKUP_TRUCK", "2", "50");
+
+        assertThat(query).isEqualTo(
+                new ListVehiclesQuery(VehicleStatus.IN_MAINTENANCE, VehicleType.PICKUP_TRUCK, 2, 50, List.of()));
+    }
+
+    @Test
+    void toQuery_deletedStatus_isParsedSoTheUseCaseRejectsIt() {
+        ListVehiclesQuery query = VehicleWebMapper.toQuery("DELETED", null, null, null);
+
+        assertThat(query.status()).isEqualTo(VehicleStatus.DELETED);
+        assertThat(query.preValidationErrors()).isEmpty();
+    }
+
+    @Test
+    void toQuery_everyParameterWithInvalidFormat_reportsAllOfThemAndKeepsDefaults() {
+        ListVehiclesQuery query = VehicleWebMapper.toQuery("active", "PLANE", "abc", "1.5");
+
+        assertThat(query.preValidationErrors()).containsExactly(new FieldError("status", "INVALID_FORMAT"),
+                new FieldError("type", "INVALID_FORMAT"), new FieldError("page", "INVALID_FORMAT"),
+                new FieldError("size", "INVALID_FORMAT"));
+        assertThat(query.page()).isZero();
+        assertThat(query.size()).isEqualTo(20);
+    }
+
+    @Test
+    void toPageResponse_copiesRowsPagingAndSummaryInOrder() {
+        UUID vehicleId = UUID.randomUUID();
+        var row = new VehicleSummaryResult(vehicleId, "ABC123", VehicleType.CAR, "Toyota", "Corolla", 2022,
+                new BigDecimal("15400.5"), VehicleStatus.ACTIVE);
+        Map<VehicleStatus, Long> summary = new LinkedHashMap<>();
+        summary.put(VehicleStatus.ACTIVE, 1L);
+        summary.put(VehicleStatus.ON_ROUTE, 0L);
+
+        VehiclePageResponse response = VehicleWebMapper.toPageResponse(
+                new VehiclePageResult(List.of(row), 0, 20, 1, summary));
+
+        assertThat(response.content()).singleElement().satisfies(item -> {
+            assertThat(item.vehicleId()).isEqualTo(vehicleId);
+            assertThat(item.plate()).isEqualTo("ABC123");
+            assertThat(item.vehicleType()).isEqualTo(VehicleType.CAR);
+            assertThat(item.brand()).isEqualTo("Toyota");
+            assertThat(item.model()).isEqualTo("Corolla");
+            assertThat(item.year()).isEqualTo(2022);
+            assertThat(item.odometerKm()).isEqualByComparingTo("15400.5");
+            assertThat(item.status()).isEqualTo(VehicleStatus.ACTIVE);
+        });
+        assertThat(response.page()).isZero();
+        assertThat(response.size()).isEqualTo(20);
+        assertThat(response.total()).isEqualTo(1);
+        assertThat(response.summary()).containsExactly(Map.entry(VehicleStatus.ACTIVE, 1L),
+                Map.entry(VehicleStatus.ON_ROUTE, 0L));
     }
 }

@@ -35,15 +35,19 @@ public class ListVehiclesService implements ListVehiclesUseCase {
 
     @Override
     public VehiclePageResult execute(ListVehiclesQuery query) {
-        validatePaging(query);
+        validate(query);
         PageResult<VehicleSummaryResult> page = vehicles
                 .search(query.status(), query.type(), query.page(), query.size())
                 .map(VehicleSummaryResult::from);
         return new VehiclePageResult(page.content(), page.page(), page.size(), page.total(), buildSummary());
     }
 
-    private void validatePaging(ListVehiclesQuery query) {
-        List<FieldError> errors = new ArrayList<>();
+    private void validate(ListVehiclesQuery query) {
+        List<FieldError> errors = new ArrayList<>(query.preValidationErrors());
+        if (query.status() == VehicleStatus.DELETED) {
+            // Los eliminados se conservan solo para auditoría: no forman parte del listado
+            errors.add(new FieldError("status", "INVALID_FORMAT"));
+        }
         if (query.page() < 0) {
             errors.add(new FieldError("page", "OUT_OF_RANGE"));
         }

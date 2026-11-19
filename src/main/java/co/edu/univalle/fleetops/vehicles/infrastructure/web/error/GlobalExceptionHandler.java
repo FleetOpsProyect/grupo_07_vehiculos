@@ -1,5 +1,6 @@
 package co.edu.univalle.fleetops.vehicles.infrastructure.web.error;
 
+import co.edu.univalle.fleetops.vehicles.application.exception.ConcurrentVehicleUpdateException;
 import co.edu.univalle.fleetops.vehicles.domain.exception.DomainException;
 import co.edu.univalle.fleetops.vehicles.domain.exception.ValidationException;
 import com.fasterxml.jackson.databind.JsonMappingException;
@@ -11,9 +12,13 @@ import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -109,6 +114,40 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Base de datos caída o sin conexión: se registra con nivel ERROR y se responde 503 para que el
+     * cliente sepa que puede reintentar. Las violaciones de restricciones no entran aquí.
+     *
+     * @param exception falla de acceso a la base de datos
+     * @param request petición en curso
+     * @return 503 {@code SERVICE_UNAVAILABLE}, sin detalles internos
+     */
+    @ExceptionHandler({DataAccessResourceFailureException.class, TransientDataAccessException.class,
+        RecoverableDataAccessException.class, CannotCreateTransactionException.class})
+    public ResponseEntity<ApiErrorResponse> handleDatabaseUnavailable(Exception exception,
+            HttpServletRequest request) {
+        LOG.error("Database unavailable on {}", request.getRequestURI().replaceAll("[\r\n]", "_"), exception);
+        return build(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE",
+                "Service temporarily unavailable, please try again", request, null);
+    }
+
+    /**
+     * Otra petición modificó el mismo vehículo y el reintento del caso de uso también chocó: se registra
+     * con nivel WARN, porque es un conflicto esperable y no una falla, y se responde 503 para que el
+     * cliente reintente.
+     *
+     * @param exception conflicto detectado al guardar
+     * @param request petición en curso
+     * @return 503 {@code SERVICE_UNAVAILABLE}, sin detalles internos
+     */
+    @ExceptionHandler(ConcurrentVehicleUpdateException.class)
+    public ResponseEntity<ApiErrorResponse> handleConcurrentUpdate(ConcurrentVehicleUpdateException exception,
+            HttpServletRequest request) {
+        LOG.warn("Concurrent update conflict on {}", request.getRequestURI().replaceAll("[\r\n]", "_"));
+        return build(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE",
+                "Service temporarily unavailable, please try again", request, null);
+    }
+
+    /**
      * Cualquier otra falla: se registra y se responde sin detalles internos.
      *
      * @param exception error inesperado
@@ -117,7 +156,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiErrorResponse> handleUnexpected(Exception exception, HttpServletRequest request) {
-        LOG.error("Unexpected error on {}", request.getRequestURI(), exception);
+        LOG.error("Unexpected error on {}", request.getRequestURI().replaceAll("[\r\n]", "_"), exception);
         return build(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Unexpected error", request, null);
     }
 

@@ -70,4 +70,26 @@ class ListVehiclesServiceTest {
                 .isInstanceOfSatisfying(ValidationException.class, ex -> assertThat(ex.errors())
                         .containsExactly(new FieldError("size", "OUT_OF_RANGE")));
     }
+
+    @Test
+    void execute_statusDeleted_isInvalidFormatAndDoesNotQuery() {
+        var query = new ListVehiclesQuery(VehicleStatus.DELETED, null, 0, 20);
+
+        assertThatThrownBy(() -> service.execute(query))
+                .isInstanceOfSatisfying(ValidationException.class, ex -> assertThat(ex.errors())
+                        .containsExactly(new FieldError("status", "INVALID_FORMAT")));
+        verifyNoInteractions(vehicles);
+    }
+
+    @Test
+    void execute_preValidationErrors_areReportedTogetherWithPagingErrors() {
+        var query = new ListVehiclesQuery(null, null, 0, 101,
+                List.of(new FieldError("type", "INVALID_FORMAT")));
+
+        assertThatThrownBy(() -> service.execute(query))
+                .isInstanceOfSatisfying(ValidationException.class, ex -> assertThat(ex.errors())
+                        .containsExactly(new FieldError("type", "INVALID_FORMAT"),
+                                new FieldError("size", "OUT_OF_RANGE")));
+        verifyNoInteractions(vehicles);
+    }
 }

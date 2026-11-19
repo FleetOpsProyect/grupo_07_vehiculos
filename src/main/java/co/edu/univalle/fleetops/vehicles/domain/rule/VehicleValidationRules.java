@@ -32,6 +32,7 @@ public final class VehicleValidationRules {
     private static final int COLOR_MAX = 30;
     private static final int NOTES_MAX = 500;
     private static final BigDecimal ODOMETER_MAX = BigDecimal.valueOf(2_000_000);
+    private static final int ODOMETER_MAX_DECIMALS = 1;
 
     private VehicleValidationRules() {
     }
@@ -129,6 +130,9 @@ public final class VehicleValidationRules {
             errors.add(new FieldError("odometer_km", REQUIRED));
         } else if (odometerKm.signum() < 0 || odometerKm.compareTo(ODOMETER_MAX) > 0) {
             errors.add(new FieldError("odometer_km", OUT_OF_RANGE));
+        } else if (odometerKm.stripTrailingZeros().scale() > ODOMETER_MAX_DECIMALS) {
+            // La columna guarda un decimal: con más, la base de datos redondearía sin avisar
+            errors.add(new FieldError("odometer_km", INVALID_FORMAT));
         }
     }
 

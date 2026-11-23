@@ -12,7 +12,7 @@ PREVIOUS="$(cat .deployed_tag 2>/dev/null || true)"
 
 wait_for_api() {
   for _ in $(seq 1 30); do
-    if curl -sf http://localhost:8085/health > /dev/null; then
+    if curl -sf http://localhost:8085/ready > /dev/null; then
       return 0
     fi
     sleep 3
@@ -36,7 +36,7 @@ if wait_for_api; then
   exit 0
 fi
 
-echo "==> ERROR: la API no respondió en /health"
+echo "==> ERROR: la API no respondió en /ready"
 $COMPOSE logs --tail=50 api || true
 if [ -n "${PREVIOUS}" ] && [ "${PREVIOUS}" != "${TAG}" ]; then
   echo "==> Volviendo a ${PREVIOUS}"

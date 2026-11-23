@@ -35,11 +35,11 @@ USER appuser
 EXPOSE 8085
 
 # Memoria conservadora para t3.micro y hora de Colombia
-ENV JAVA_OPTS="-Xms256m -Xmx512m -Duser.timezone=America/Bogota"
+ENV JAVA_OPTS="-Xms128m -Xmx384m -Xss512k -Duser.timezone=America/Bogota"
 
-# GET /health devuelve 503 si la base de datos no responde
+# GET /ready devuelve 503 si la base de datos no responde
 HEALTHCHECK --interval=15s --timeout=3s --start-period=40s --retries=5 \
-  CMD wget -q -O /dev/null http://localhost:8085/health || exit 1
+  CMD wget -q -O /dev/null http://localhost:8085/ready || exit 1
 
 # exec: la JVM recibe SIGTERM y cierra ordenadamente
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

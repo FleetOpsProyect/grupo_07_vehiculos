@@ -41,7 +41,7 @@ public class EventEnvelopeFactory {
             correlationId = UUID.randomUUID().toString();
         }
         return new EventEnvelope(UUID.randomUUID(), eventType,
-                OffsetDateTime.now(clock).truncatedTo(ChronoUnit.MILLIS), EventEnvelope.SOURCE, correlationId,
+                OffsetDateTime.now(clock).truncatedTo(ChronoUnit.MILLIS), EventEnvelope.VEHICLE_SOURCE, correlationId,
                 data);
     }
 }

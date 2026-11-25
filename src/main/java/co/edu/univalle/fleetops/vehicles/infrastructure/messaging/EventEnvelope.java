@@ -19,5 +19,5 @@ public record EventEnvelope(UUID eventId, String eventType, OffsetDateTime occur
                             String correlationId, Map<String, Object> data) {
 
     /** Slug de Vehículos en la hoja Convenciones. */
-    public static final String SOURCE = "vehicle";
+    public static final String VEHICLE_SOURCE = "vehicle";
 }

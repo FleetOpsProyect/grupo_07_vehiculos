@@ -36,6 +36,7 @@ public abstract class PostgresIntegrationTest {
 
     @BeforeEach
     void cleanDatabase() {
-        jdbc.execute("TRUNCATE TABLE status_history, vehicle_block, vehicle CASCADE");
+        jdbc.execute("TRUNCATE TABLE status_history, vehicle_block, vehicle, outbox_events, "
+                + "processed_events CASCADE");
     }
 }

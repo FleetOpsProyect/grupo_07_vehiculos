@@ -1,5 +1,5 @@
 # Desarrollo local.
-#   docker compose up -d                      -> solo PostgreSQL (puerto 3050); la API con ./gradlew bootRun
+#   docker compose up -d                      -> PostgreSQL (3050) y LocalStack (4566); la API con ./gradlew bootRun
 #   docker compose --profile app up -d --build -> PostgreSQL + API en contenedor (puerto 8085)
 # Las variables salen del archivo .env (copiar de .env.example). Sin DB_PASS no arranca.
 services:
@@ -22,6 +22,26 @@ services:
       timeout: 5s
       retries: 5
 
+  # SNS y SQS locales (HU-13). La versión 4.14.0 es la última de la línea comunitaria sin cuenta.
+  # Los recursos (topic y colas) los crea localstack/init/ready.d/01-create-resources.sh.
+  localstack:
+    image: localstack/localstack:4.14.0
+    container_name: vehiculos_localstack
+    environment:
+      SERVICES: sns,sqs
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro,z
+    networks:
+      - vehiculos_network
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal sqs list-queues | grep -q vehicles_queue_dlq"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   api:
     profiles: ["app"]
     build: .
@@ -36,10 +56,20 @@ services:
       SPRING_FLYWAY_PASSWORD: ${DB_PASS}
       DOCUMENTS_SERVICE_URL: ${DOCUMENTS_SERVICE_URL:-http://localhost:8081}
       ASSIGNMENTS_SERVICE_URL: ${ASSIGNMENTS_SERVICE_URL:-http://localhost:8082}
+      # Mensajería contra LocalStack (apagarla: FLEETOPS_MESSAGING_ENABLED=false en el .env)
+      FLEETOPS_MESSAGING_ENABLED: ${FLEETOPS_MESSAGING_ENABLED:-true}
+      FLEETOPS_MESSAGING_ENDPOINT: http://localstack:4566
+      # LocalStack acepta cualquier clave; el SDK solo necesita que existan
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+      SNS_TOPIC_ARN: arn:aws:sns:us-east-1:000000000000:fleetops_vehicle_events
+      SQS_QUEUE_URL: http://localstack:4566/000000000000/vehicles_queue
     ports:
       - "8085:8085"
     depends_on:
       postgres:
+        condition: service_healthy
+      localstack:
         condition: service_healthy
     networks:
       - vehiculos_network

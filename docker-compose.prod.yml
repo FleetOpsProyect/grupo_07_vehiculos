@@ -37,6 +37,11 @@ services:
       DOCUMENTS_SERVICE_URL: ${DOCUMENTS_SERVICE_URL}
       ASSIGNMENTS_SERVICE_URL: ${ASSIGNMENTS_SERVICE_URL}
       MANAGEMENT_SERVER_PORT: 18001
+      # Mensajería en AWS (HU-13): credenciales del rol del EC2. Sin SNS_TOPIC_ARN no publica y sin
+      # SQS_QUEUE_URL no consume (el despliegue sigue funcionando).
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      SNS_TOPIC_ARN: ${SNS_TOPIC_ARN:-}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL:-}
     ports:
       - "8085:8085"
       - "18001:18001"

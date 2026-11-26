@@ -50,6 +50,23 @@ fleetops:
       url: ${DOCUMENTS_SERVICE_URL:http://localhost:8081}
     assignments:
       url: ${ASSIGNMENTS_SERVICE_URL:http://localhost:8082}
+  # Mensajería SNS/SQS (HU-13). Sin topic o sin cola configurados, esa parte no arranca.
+  # Credenciales: cadena por defecto del SDK (rol del EC2 en AWS; AWS_ACCESS_KEY_ID y
+  # AWS_SECRET_ACCESS_KEY del entorno en local con LocalStack). El código no lleva claves.
+  messaging:
+    enabled: ${FLEETOPS_MESSAGING_ENABLED:true}
+    region: ${AWS_REGION:us-east-1}
+    endpoint: ${FLEETOPS_MESSAGING_ENDPOINT:}
+    topic-arn: ${SNS_TOPIC_ARN:}
+    queue-url: ${SQS_QUEUE_URL:}
+    publisher:
+      batch-size: 50
+      fixed-delay-ms: 2000
+      timeout-ms: 2000
+    listener:
+      wait-time-seconds: 20
+      max-messages: 10
+      error-backoff-ms: 5000
 
 springdoc:
   api-docs:

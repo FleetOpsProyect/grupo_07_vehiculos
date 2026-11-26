@@ -26,7 +26,8 @@ class HexagonalArchTest {
     @ArchTest
     static final ArchRule domainIsFrameworkFree = noClasses().that().resideInAPackage(DOMAIN)
             .should().dependOnClassesThat().resideInAnyPackage("org.springframework..", "jakarta..",
-                    "javax..", "org.hibernate..", "com.fasterxml..", "lombok..");
+                    "javax..", "org.hibernate..", "com.fasterxml..", "lombok..", "software.amazon..",
+                    "io.micrometer..");
 
     @ArchTest
     static final ArchRule applicationDoesNotDependOnInfrastructure = noClasses().that()
@@ -35,7 +36,8 @@ class HexagonalArchTest {
     @ArchTest
     static final ArchRule applicationIsFrameworkFree = noClasses().that().resideInAPackage(APPLICATION)
             .should().dependOnClassesThat().resideInAnyPackage("org.springframework..", "jakarta..",
-                    "javax..", "org.hibernate..", "com.fasterxml..", "lombok..");
+                    "javax..", "org.hibernate..", "com.fasterxml..", "lombok..", "software.amazon..",
+                    "io.micrometer..");
 
     @ArchTest
     static final ArchRule portsAreInterfaces = classes().that()

@@ -4,11 +4,14 @@ import co.edu.univalle.fleetops.vehicles.application.port.in.ChangeToMaintenance
 import co.edu.univalle.fleetops.vehicles.application.port.in.DeleteVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.GetVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.ListEligibleVehiclesUseCase;
+import co.edu.univalle.fleetops.vehicles.application.port.in.IncomingEventHandler;
 import co.edu.univalle.fleetops.vehicles.application.port.in.ListVehiclesUseCase;
+import co.edu.univalle.fleetops.vehicles.application.port.in.ProcessIncomingEventUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.RegisterVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.UpdateVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.out.ActiveAssignmentsPort;
 import co.edu.univalle.fleetops.vehicles.application.port.out.DocumentValidityPort;
+import co.edu.univalle.fleetops.vehicles.application.port.out.ProcessedEventRepository;
 import co.edu.univalle.fleetops.vehicles.application.port.out.StatusHistoryRepository;
 import co.edu.univalle.fleetops.vehicles.application.port.out.TransactionPort;
 import co.edu.univalle.fleetops.vehicles.application.port.out.VehicleRepository;
@@ -17,9 +20,11 @@ import co.edu.univalle.fleetops.vehicles.application.usecase.DeleteVehicleServic
 import co.edu.univalle.fleetops.vehicles.application.usecase.GetVehicleService;
 import co.edu.univalle.fleetops.vehicles.application.usecase.ListEligibleVehiclesService;
 import co.edu.univalle.fleetops.vehicles.application.usecase.ListVehiclesService;
+import co.edu.univalle.fleetops.vehicles.application.usecase.ProcessIncomingEventService;
 import co.edu.univalle.fleetops.vehicles.application.usecase.RegisterVehicleService;
 import co.edu.univalle.fleetops.vehicles.application.usecase.UpdateVehicleService;
 import java.time.Clock;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -123,5 +128,20 @@ public class UseCaseConfig {
     public DeleteVehicleUseCase deleteVehicleUseCase(VehicleRepository vehicles, StatusHistoryRepository history,
             ActiveAssignmentsPort assignments, TransactionPort transaction, Clock clock) {
         return new DeleteVehicleService(vehicles, history, assignments, transaction, clock);
+    }
+
+    /**
+     * Caso de uso que aplica un mensaje recibido una sola vez, con los manejadores registrados.
+     *
+     * @param handlers manejadores de cada {@code event_type}; puede no haber ninguno
+     * @param processed registro de mensajes ya procesados
+     * @param transaction ejecución transaccional
+     * @param clock reloj en GMT-5
+     * @return el caso de uso
+     */
+    @Bean
+    public ProcessIncomingEventUseCase processIncomingEventUseCase(ObjectProvider<IncomingEventHandler> handlers,
+            ProcessedEventRepository processed, TransactionPort transaction, Clock clock) {
+        return new ProcessIncomingEventService(handlers.orderedStream().toList(), processed, transaction, clock);
     }
 }

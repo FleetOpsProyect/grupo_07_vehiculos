@@ -56,8 +56,7 @@ public class ProcessIncomingEventService implements ProcessIncomingEventUseCase 
             if (!processed.markProcessed(event.eventId(), event.eventType(), OffsetDateTime.now(clock))) {
                 return IncomingEventResult.DUPLICATE;
             }
-            handler.handle(event);
-            return IncomingEventResult.PROCESSED;
+            return handler.handle(event) ? IncomingEventResult.PROCESSED : IncomingEventResult.IGNORED;
         });
     }
 }

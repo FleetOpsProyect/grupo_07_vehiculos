@@ -148,6 +148,7 @@ public class SqsQueueListener implements SmartLifecycle {
             case UNKNOWN_TYPE -> LOG.warn("Unknown event_type {} (event_id {}): message discarded", type, id);
             case DUPLICATE -> LOG.info("Event {} ({}) was already processed: message discarded", id, type);
             case PROCESSED -> LOG.info("Event {} ({}) processed", id, type);
+            case IGNORED -> LOG.info("Event {} ({}) had no effect: unknown or deleted vehicle, or no change", id, type);
             default -> throw new IllegalStateException("Unexpected result " + result);
         }
     }

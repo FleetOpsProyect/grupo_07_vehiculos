@@ -1,14 +1,17 @@
 package co.edu.univalle.fleetops.vehicles.application.usecase;
 
 import co.edu.univalle.fleetops.vehicles.application.command.ChangeToMaintenanceCommand;
+import co.edu.univalle.fleetops.vehicles.application.event.VehicleEvents;
 import co.edu.univalle.fleetops.vehicles.application.exception.ConcurrentVehicleUpdateException;
 import co.edu.univalle.fleetops.vehicles.application.port.in.ChangeToMaintenanceUseCase;
+import co.edu.univalle.fleetops.vehicles.application.port.out.EventOutbox;
 import co.edu.univalle.fleetops.vehicles.application.port.out.StatusHistoryRepository;
 import co.edu.univalle.fleetops.vehicles.application.port.out.TransactionPort;
 import co.edu.univalle.fleetops.vehicles.application.port.out.VehicleRepository;
 import co.edu.univalle.fleetops.vehicles.application.result.VehicleResult;
 import co.edu.univalle.fleetops.vehicles.domain.exception.StatusNotAllowedException;
 import co.edu.univalle.fleetops.vehicles.domain.exception.VehicleNotFoundException;
+import co.edu.univalle.fleetops.vehicles.domain.model.BlockType;
 import co.edu.univalle.fleetops.vehicles.domain.model.StatusChangeCause;
 import co.edu.univalle.fleetops.vehicles.domain.model.StatusHistoryEntry;
 import co.edu.univalle.fleetops.vehicles.domain.model.Vehicle;
@@ -21,12 +24,14 @@ import java.time.OffsetDateTime;
  * {@code maintenance_id} devuelve el vehículo sin cambios ni registro nuevo en el historial. Si otra
  * petición modifica el vehículo al mismo tiempo, reintenta una sola vez en una transacción nueva: al
  * recargar se aplican las reglas normales (por ejemplo, el mismo {@code maintenance_id} ya aplicado
- * responde 200). Si el reintento también choca, el conflicto sube sin más intentos.
+ * responde 200). Si el reintento también choca, el conflicto sube sin más intentos. Cada cambio real
+ * registra {@code vehicle_status_changed_event}.
  */
 public class ChangeToMaintenanceService implements ChangeToMaintenanceUseCase {
 
     private final VehicleRepository vehicles;
     private final StatusHistoryRepository history;
+    private final EventOutbox outbox;
     private final TransactionPort transaction;
     private final Clock clock;
 
@@ -35,13 +40,15 @@ public class ChangeToMaintenanceService implements ChangeToMaintenanceUseCase {
      *
      * @param vehicles persistencia de vehículos
      * @param history persistencia del historial de estados
+     * @param outbox registro de eventos en la misma transacción
      * @param transaction ejecución transaccional
      * @param clock reloj en GMT-5
      */
     public ChangeToMaintenanceService(VehicleRepository vehicles, StatusHistoryRepository history,
-                                      TransactionPort transaction, Clock clock) {
+                                      EventOutbox outbox, TransactionPort transaction, Clock clock) {
         this.vehicles = vehicles;
         this.history = history;
+        this.outbox = outbox;
         this.transaction = transaction;
         this.clock = clock;
     }
@@ -71,6 +78,8 @@ public class ChangeToMaintenanceService implements ChangeToMaintenanceUseCase {
             Vehicle saved = vehicles.save(vehicle);
             history.save(StatusHistoryEntry.of(saved.id(), previous, saved.status(),
                     StatusChangeCause.MAINTENANCE_STARTED, command.maintenanceId().toString(), now));
+            outbox.record(VehicleEvents.STATUS_CHANGED, saved.id(), VehicleEvents.statusChanged(saved, previous,
+                    BlockType.MAINTENANCE.name(), VehicleEvents.BLOCK_ADDED, command.maintenanceId().toString()));
             return VehicleResult.from(saved);
         });
     }

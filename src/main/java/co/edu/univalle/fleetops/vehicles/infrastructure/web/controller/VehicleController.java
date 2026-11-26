@@ -2,6 +2,7 @@ package co.edu.univalle.fleetops.vehicles.infrastructure.web.controller;
 
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.ChangeStatusRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.CreateVehicleRequest;
+import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.DeletedVehicleResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.UpdateVehicleRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.VehiclePageResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.VehicleResponse;
@@ -9,6 +10,7 @@ import co.edu.univalle.fleetops.vehicles.infrastructure.web.error.ApiErrorRespon
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.error.InvalidVehicleIdException;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.mapper.VehicleWebMapper;
 import co.edu.univalle.fleetops.vehicles.application.port.in.ChangeToMaintenanceUseCase;
+import co.edu.univalle.fleetops.vehicles.application.port.in.DeleteVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.GetVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.ListVehiclesUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.RegisterVehicleUseCase;
@@ -23,6 +25,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.net.URI;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,6 +49,7 @@ public class VehicleController {
     private final ListVehiclesUseCase listVehicles;
     private final UpdateVehicleUseCase updateVehicle;
     private final ChangeToMaintenanceUseCase changeToMaintenance;
+    private final DeleteVehicleUseCase deleteVehicle;
 
     /**
      * Crea el controller con los puertos de entrada que usa.
@@ -55,15 +59,17 @@ public class VehicleController {
      * @param listVehicles caso de uso de listado
      * @param updateVehicle caso de uso de edicion
      * @param changeToMaintenance caso de uso de paso a mantenimiento
+     * @param deleteVehicle caso de uso de baja lógica
      */
     public VehicleController(RegisterVehicleUseCase registerVehicle, GetVehicleUseCase getVehicle,
             ListVehiclesUseCase listVehicles, UpdateVehicleUseCase updateVehicle,
-            ChangeToMaintenanceUseCase changeToMaintenance) {
+            ChangeToMaintenanceUseCase changeToMaintenance, DeleteVehicleUseCase deleteVehicle) {
         this.registerVehicle = registerVehicle;
         this.getVehicle = getVehicle;
         this.listVehicles = listVehicles;
         this.updateVehicle = updateVehicle;
         this.changeToMaintenance = changeToMaintenance;
+        this.deleteVehicle = deleteVehicle;
     }
 
     /**
@@ -171,6 +177,27 @@ public class VehicleController {
     public VehicleResponse changeStatus(@PathVariable String id, @RequestBody ChangeStatusRequest request) {
         UUID vehicleId = parseId(id);
         return VehicleWebMapper.toResponse(changeToMaintenance.execute(VehicleWebMapper.toCommand(vehicleId, request)));
+    }
+
+    /**
+     * DELETE /vehicles/{id}: baja lógica. Antes consulta a Asignaciones (G2); si no responde, no se borra.
+     * Un vehículo ya eliminado responde 200 igual. Un id que no es UUID responde 404.
+     *
+     * @param id id tal como llegó en la ruta
+     * @return 200 con el vehículo en DELETED
+     */
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Baja lógica de un vehículo sin asignaciones pendientes ni en curso")
+    @ApiResponse(responseCode = "200", description = "Vehículo en DELETED (también si ya estaba eliminado)")
+    @ApiResponse(responseCode = "404", description = "VEHICLE_NOT_FOUND: no existe o el id no es UUID",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "409", description = "VEHICLE_HAS_ACTIVE_ASSIGNMENTS: tiene asignaciones "
+            + "PENDING o IN_PROGRESS", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "503", description = "ASSIGNMENT_SERVICE_UNAVAILABLE o SERVICE_UNAVAILABLE: "
+            + "Asignaciones o la base de datos no responden",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    public DeletedVehicleResponse delete(@PathVariable String id) {
+        return VehicleWebMapper.toDeletedResponse(deleteVehicle.execute(parseId(id)));
     }
 
     private static UUID parseId(String rawId) {

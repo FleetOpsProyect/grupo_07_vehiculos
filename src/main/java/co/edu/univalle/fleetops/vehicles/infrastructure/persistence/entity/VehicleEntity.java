@@ -69,6 +69,10 @@ public class VehicleEntity {
     @Column(name = "deleted", nullable = false)
     private boolean deleted;
 
+    /** Versión de negocio (data.version_number de los eventos); no es el bloqueo optimista. */
+    @Column(name = "version_number", nullable = false)
+    private long versionNumber;
+
     @Version
     @Column(name = "version", nullable = false)
     private Long version;

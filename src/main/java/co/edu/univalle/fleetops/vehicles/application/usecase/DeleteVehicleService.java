@@ -1,7 +1,9 @@
 package co.edu.univalle.fleetops.vehicles.application.usecase;
 
+import co.edu.univalle.fleetops.vehicles.application.event.VehicleEvents;
 import co.edu.univalle.fleetops.vehicles.application.port.in.DeleteVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.out.ActiveAssignmentsPort;
+import co.edu.univalle.fleetops.vehicles.application.port.out.EventOutbox;
 import co.edu.univalle.fleetops.vehicles.application.port.out.StatusHistoryRepository;
 import co.edu.univalle.fleetops.vehicles.application.port.out.TransactionPort;
 import co.edu.univalle.fleetops.vehicles.application.port.out.VehicleRepository;
@@ -18,13 +20,15 @@ import java.util.UUID;
 
 /**
  * Baja lógica. Consulta a Asignaciones fuera de la transacción: si no responde, la excepción sube
- * y no se borra nada. Un vehículo ya eliminado responde igual, sin consultar.
+ * y no se borra nada. Un vehículo ya eliminado responde igual, sin consultar ni publicar. La baja
+ * registra {@code vehicle_deleted_event}.
  */
 public class DeleteVehicleService implements DeleteVehicleUseCase {
 
     private final VehicleRepository vehicles;
     private final StatusHistoryRepository history;
     private final ActiveAssignmentsPort assignments;
+    private final EventOutbox outbox;
     private final TransactionPort transaction;
     private final Clock clock;
 
@@ -34,14 +38,17 @@ public class DeleteVehicleService implements DeleteVehicleUseCase {
      * @param vehicles persistencia de vehículos
      * @param history persistencia del historial de estados
      * @param assignments consulta de asignaciones activas a Asignaciones
+     * @param outbox registro de eventos en la misma transacción
      * @param transaction ejecución transaccional
      * @param clock reloj en GMT-5
      */
     public DeleteVehicleService(VehicleRepository vehicles, StatusHistoryRepository history,
-                                ActiveAssignmentsPort assignments, TransactionPort transaction, Clock clock) {
+                                ActiveAssignmentsPort assignments, EventOutbox outbox, TransactionPort transaction,
+                                Clock clock) {
         this.vehicles = vehicles;
         this.history = history;
         this.assignments = assignments;
+        this.outbox = outbox;
         this.transaction = transaction;
         this.clock = clock;
     }
@@ -64,6 +71,7 @@ public class DeleteVehicleService implements DeleteVehicleUseCase {
             Vehicle saved = vehicles.save(vehicle);
             history.save(StatusHistoryEntry.of(saved.id(), previous, saved.status(),
                     StatusChangeCause.VEHICLE_DELETED, null, now));
+            outbox.record(VehicleEvents.DELETED, saved.id(), VehicleEvents.deleted(saved));
             return DeletedVehicleResult.from(saved);
         });
     }

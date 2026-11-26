@@ -27,7 +27,8 @@ public class VehicleMapper {
         return Vehicle.restore(entity.getId(), entity.getPlate(), entity.getVehicleType(), details,
                 entity.getOdometerKm(), entity.getStatus(),
                 entity.getBlocks().stream().map(VehicleMapper::toDomainBlock).toList(),
-                entity.getActiveRouteId(), entity.isDeleted(), entity.getCreatedAt(), entity.getUpdatedAt());
+                entity.getActiveRouteId(), entity.isDeleted(), entity.getVersionNumber(), entity.getCreatedAt(),
+                entity.getUpdatedAt());
     }
 
     /**
@@ -51,6 +52,7 @@ public class VehicleMapper {
         entity.setStatus(vehicle.status());
         entity.setActiveRouteId(vehicle.activeRouteId());
         entity.setDeleted(vehicle.isDeleted());
+        entity.setVersionNumber(vehicle.versionNumber());
         entity.setCreatedAt(vehicle.createdAt());
         entity.setUpdatedAt(vehicle.updatedAt());
         syncBlocks(vehicle, entity);

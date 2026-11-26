@@ -50,6 +50,8 @@ fleetops:
       url: ${DOCUMENTS_SERVICE_URL:http://localhost:8081}
     assignments:
       url: ${ASSIGNMENTS_SERVICE_URL:http://localhost:8082}
+      # Para conectar y, aparte, para leer; si se pasa, DELETE responde 503 sin borrar
+      timeout-ms: 2000
   # Mensajería SNS/SQS (HU-13). Sin topic o sin cola configurados, esa parte no arranca.
   # Credenciales: cadena por defecto del SDK (rol del EC2 en AWS; AWS_ACCESS_KEY_ID y
   # AWS_SECRET_ACCESS_KEY del entorno en local con LocalStack). El código no lleva claves.

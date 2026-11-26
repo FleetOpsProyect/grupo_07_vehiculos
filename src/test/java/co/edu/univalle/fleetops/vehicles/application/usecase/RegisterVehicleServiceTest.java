@@ -5,6 +5,7 @@ import static co.edu.univalle.fleetops.vehicles.application.support.VehicleFixtu
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -12,7 +13,9 @@ import static org.mockito.Mockito.when;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
 
 import co.edu.univalle.fleetops.vehicles.application.command.RegisterVehicleCommand;
+import co.edu.univalle.fleetops.vehicles.application.event.VehicleEvents;
 import co.edu.univalle.fleetops.vehicles.application.port.out.StatusHistoryRepository;
+import co.edu.univalle.fleetops.vehicles.application.port.out.EventOutbox;
 import co.edu.univalle.fleetops.vehicles.application.port.out.VehicleRepository;
 import co.edu.univalle.fleetops.vehicles.application.result.VehicleResult;
 import co.edu.univalle.fleetops.vehicles.application.support.PassThroughTransactionPort;
@@ -24,10 +27,12 @@ import co.edu.univalle.fleetops.vehicles.domain.model.Vehicle;
 import co.edu.univalle.fleetops.vehicles.domain.model.VehicleStatus;
 import co.edu.univalle.fleetops.vehicles.domain.model.VehicleType;
 import java.math.BigDecimal;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -38,12 +43,16 @@ class RegisterVehicleServiceTest {
     private VehicleRepository vehicles;
     @Mock
     private StatusHistoryRepository history;
+    @Mock
+    private EventOutbox outbox;
+    @Captor
+    private ArgumentCaptor<Map<String, Object>> data;
 
     private RegisterVehicleService service;
 
     @BeforeEach
     void setUp() {
-        service = new RegisterVehicleService(vehicles, history, new PassThroughTransactionPort(), CLOCK);
+        service = new RegisterVehicleService(vehicles, history, outbox, new PassThroughTransactionPort(), CLOCK);
     }
 
     private static RegisterVehicleCommand command(String plate) {
@@ -77,7 +86,7 @@ class RegisterVehicleServiceTest {
                 .isInstanceOf(PlateAlreadyExistsException.class);
 
         verify(vehicles, never()).save(any());
-        verifyNoInteractions(history);
+        verifyNoInteractions(history, outbox);
     }
 
     @Test
@@ -86,6 +95,21 @@ class RegisterVehicleServiceTest {
 
         assertThatThrownBy(() -> service.execute(invalid)).isInstanceOf(ValidationException.class);
 
-        verifyNoInteractions(vehicles, history);
+        verifyNoInteractions(vehicles, history, outbox);
+    }
+
+    @Test
+    void execute_validCommand_recordsVehicleCreatedEventInVersionZero() {
+        when(vehicles.existsActiveByPlate("ABC123")).thenReturn(false);
+        when(vehicles.save(any(Vehicle.class))).then(returnsFirstArg());
+
+        VehicleResult result = service.execute(command("abc-123"));
+
+        verify(outbox).record(eq(VehicleEvents.CREATED), eq(result.vehicleId()), data.capture());
+        assertThat(data.getValue())
+                .containsEntry("vehicle_id", result.vehicleId())
+                .containsEntry("plate", "ABC123")
+                .containsEntry("status", "ACTIVE")
+                .containsEntry("version_number", 0L);
     }
 }

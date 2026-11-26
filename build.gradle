@@ -85,8 +85,8 @@ dependencies {
 
 def jacocoExclusions = [
     'co/edu/univalle/fleetops/vehicles/infrastructure/config/**',
-    // Clientes de G1/G2 pendientes: se miden cuando el equipo los implemente
-    'co/edu/univalle/fleetops/vehicles/infrastructure/client/**',
+    // Cliente de G1 pendiente (marcador que responde 503): se mide cuando el equipo lo implemente
+    'co/edu/univalle/fleetops/vehicles/infrastructure/client/Pending*',
     'co/edu/univalle/fleetops/vehicles/VehiclesApplication.class'
 ]
 
@@ -157,7 +157,7 @@ sonar {
         property 'sonar.organization', 'fleetopsproyect-1'
         property 'sonar.host.url', 'https://sonarcloud.io'
         property 'sonar.coverage.jacoco.xmlReportPaths', 'build/reports/jacoco/test/jacocoTestReport.xml'
-        property 'sonar.coverage.exclusions', '**/config/**,**/model/**,**/dto/**,**/exception/**,**/controller/**,**/client/**'
+        property 'sonar.coverage.exclusions', '**/config/**,**/model/**,**/dto/**,**/exception/**,**/controller/**,**/client/Pending*'
         property 'sonar.java.source', '21'
     }
 }

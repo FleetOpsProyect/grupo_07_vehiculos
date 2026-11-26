@@ -84,7 +84,7 @@ class VehicleRepositoryAdapterTest extends PostgresIntegrationTest {
         repository.save(vehicle);
         Vehicle withoutBlocks = Vehicle.restore(vehicle.id(), vehicle.plate(), vehicle.type(), vehicle.details(),
                 vehicle.odometerKm(), VehicleStatus.ACTIVE, java.util.List.of(), null, false,
-                vehicle.createdAt(), NOW.plusDays(1));
+                vehicle.versionNumber() + 1, vehicle.createdAt(), NOW.plusDays(1));
 
         repository.save(withoutBlocks);
 

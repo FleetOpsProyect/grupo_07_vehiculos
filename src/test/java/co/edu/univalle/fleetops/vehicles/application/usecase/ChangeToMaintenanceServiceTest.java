@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -14,8 +15,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import co.edu.univalle.fleetops.vehicles.application.command.ChangeToMaintenanceCommand;
+import co.edu.univalle.fleetops.vehicles.application.event.VehicleEvents;
 import co.edu.univalle.fleetops.vehicles.application.exception.ConcurrentVehicleUpdateException;
 import co.edu.univalle.fleetops.vehicles.application.port.out.StatusHistoryRepository;
+import co.edu.univalle.fleetops.vehicles.application.port.out.EventOutbox;
 import co.edu.univalle.fleetops.vehicles.application.port.out.VehicleRepository;
 import co.edu.univalle.fleetops.vehicles.application.result.VehicleResult;
 import co.edu.univalle.fleetops.vehicles.application.support.PassThroughTransactionPort;
@@ -26,12 +29,15 @@ import co.edu.univalle.fleetops.vehicles.domain.model.StatusChangeCause;
 import co.edu.univalle.fleetops.vehicles.domain.model.StatusHistoryEntry;
 import co.edu.univalle.fleetops.vehicles.domain.model.Vehicle;
 import co.edu.univalle.fleetops.vehicles.domain.model.VehicleStatus;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -42,12 +48,16 @@ class ChangeToMaintenanceServiceTest {
     private VehicleRepository vehicles;
     @Mock
     private StatusHistoryRepository history;
+    @Mock
+    private EventOutbox outbox;
+    @Captor
+    private ArgumentCaptor<Map<String, Object>> data;
 
     private ChangeToMaintenanceService service;
 
     @BeforeEach
     void setUp() {
-        service = new ChangeToMaintenanceService(vehicles, history, new PassThroughTransactionPort(), CLOCK);
+        service = new ChangeToMaintenanceService(vehicles, history, outbox, new PassThroughTransactionPort(), CLOCK);
     }
 
     @Test
@@ -84,7 +94,7 @@ class ChangeToMaintenanceServiceTest {
 
         assertThat(result.status()).isEqualTo(VehicleStatus.IN_MAINTENANCE);
         verify(vehicles, never()).save(any());
-        verifyNoInteractions(history);
+        verifyNoInteractions(history, outbox);
     }
 
     @Test
@@ -143,7 +153,7 @@ class ChangeToMaintenanceServiceTest {
     private static Vehicle reloadedCopyOf(Vehicle vehicle) {
         return Vehicle.restore(vehicle.id(), vehicle.plate(), vehicle.type(), vehicle.details(),
                 vehicle.odometerKm(), vehicle.status(), vehicle.blocks(), vehicle.activeRouteId(),
-                vehicle.isDeleted(), vehicle.createdAt(), vehicle.updatedAt());
+                vehicle.isDeleted(), vehicle.versionNumber(), vehicle.createdAt(), vehicle.updatedAt());
     }
 
     @Test
@@ -214,5 +224,26 @@ class ChangeToMaintenanceServiceTest {
         verify(vehicles, times(2)).findById(firstRead.id());
         verify(vehicles, times(2)).save(any(Vehicle.class));
         verifyNoInteractions(history);
+    }
+
+    @Test
+    void execute_activeVehicle_recordsStatusChangedEventWithTheMaintenanceCause() {
+        Vehicle vehicle = activeVehicle();
+        UUID maintenanceId = UUID.randomUUID();
+        when(vehicles.findById(vehicle.id())).thenReturn(Optional.of(vehicle));
+        when(vehicles.save(any(Vehicle.class))).then(returnsFirstArg());
+
+        service.execute(new ChangeToMaintenanceCommand(vehicle.id(), VehicleStatus.IN_MAINTENANCE, maintenanceId));
+
+        verify(outbox).record(eq(VehicleEvents.STATUS_CHANGED), eq(vehicle.id()), data.capture());
+        assertThat(data.getValue())
+                .containsEntry("previous_status", "ACTIVE")
+                .containsEntry("status", "IN_MAINTENANCE")
+                .containsEntry("cause", Map.of("type", "MAINTENANCE", "action", "BLOCK_ADDED",
+                        "source_id", maintenanceId.toString()))
+                .containsEntry("active_blocks", List.of(Map.of("block_key", "MAINTENANCE:" + maintenanceId,
+                        "type", "MAINTENANCE")))
+                .containsEntry("is_assignable", false)
+                .containsEntry("version_number", 1L);
     }
 }

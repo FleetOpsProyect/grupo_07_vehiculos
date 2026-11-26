@@ -7,13 +7,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import co.edu.univalle.fleetops.vehicles.application.event.VehicleEvents;
 import co.edu.univalle.fleetops.vehicles.application.port.out.ActiveAssignmentsPort;
 import co.edu.univalle.fleetops.vehicles.application.port.out.StatusHistoryRepository;
+import co.edu.univalle.fleetops.vehicles.application.port.out.EventOutbox;
 import co.edu.univalle.fleetops.vehicles.application.port.out.VehicleRepository;
 import co.edu.univalle.fleetops.vehicles.application.result.DeletedVehicleResult;
 import co.edu.univalle.fleetops.vehicles.application.support.PassThroughTransactionPort;
@@ -24,12 +27,14 @@ import co.edu.univalle.fleetops.vehicles.domain.model.StatusChangeCause;
 import co.edu.univalle.fleetops.vehicles.domain.model.StatusHistoryEntry;
 import co.edu.univalle.fleetops.vehicles.domain.model.Vehicle;
 import co.edu.univalle.fleetops.vehicles.domain.model.VehicleStatus;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -42,12 +47,16 @@ class DeleteVehicleServiceTest {
     private StatusHistoryRepository history;
     @Mock
     private ActiveAssignmentsPort assignments;
+    @Mock
+    private EventOutbox outbox;
+    @Captor
+    private ArgumentCaptor<Map<String, Object>> data;
 
     private DeleteVehicleService service;
 
     @BeforeEach
     void setUp() {
-        service = new DeleteVehicleService(vehicles, history, assignments, new PassThroughTransactionPort(),
+        service = new DeleteVehicleService(vehicles, history, assignments, outbox, new PassThroughTransactionPort(),
                 CLOCK);
     }
 
@@ -81,7 +90,7 @@ class DeleteVehicleServiceTest {
                 .hasMessageContaining("2");
 
         verify(vehicles, never()).save(any());
-        verifyNoInteractions(history);
+        verifyNoInteractions(history, outbox);
     }
 
     @Test
@@ -106,7 +115,7 @@ class DeleteVehicleServiceTest {
         DeletedVehicleResult result = service.execute(vehicle.id());
 
         assertThat(result.deleted()).isTrue();
-        verifyNoInteractions(assignments, history);
+        verifyNoInteractions(assignments, history, outbox);
     }
 
     @Test
@@ -115,5 +124,22 @@ class DeleteVehicleServiceTest {
         when(vehicles.findById(id)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.execute(id)).isInstanceOf(VehicleNotFoundException.class);
+    }
+
+    @Test
+    void execute_noActiveAssignments_recordsVehicleDeletedEvent() {
+        Vehicle vehicle = activeVehicle();
+        when(vehicles.findById(vehicle.id())).thenReturn(Optional.of(vehicle));
+        when(assignments.countActiveAssignments(vehicle.id())).thenReturn(0);
+        when(vehicles.save(any(Vehicle.class))).then(returnsFirstArg());
+
+        service.execute(vehicle.id());
+
+        verify(outbox).record(eq(VehicleEvents.DELETED), eq(vehicle.id()), data.capture());
+        assertThat(data.getValue())
+                .containsEntry("vehicle_id", vehicle.id())
+                .containsEntry("plate", "ABC123")
+                .containsEntry("deleted_at", NOW)
+                .containsEntry("version_number", 1L);
     }
 }

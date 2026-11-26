@@ -17,6 +17,8 @@ public interface IncomingEventHandler {
      * queda ningún cambio y el mensaje se reintenta.
      *
      * @param event evento recibido
+     * @return {@code true} si cambió algo; {@code false} si no tuvo efecto (por ejemplo, vehículo
+     *     desconocido o eliminado, o ya estaba en ese estado)
      */
-    void handle(IncomingEvent event);
+    boolean handle(IncomingEvent event);
 }

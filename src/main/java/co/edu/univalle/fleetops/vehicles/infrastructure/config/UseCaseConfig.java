@@ -10,18 +10,26 @@ import co.edu.univalle.fleetops.vehicles.application.port.in.ProcessIncomingEven
 import co.edu.univalle.fleetops.vehicles.application.port.in.RegisterVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.UpdateVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.out.ActiveAssignmentsPort;
+import co.edu.univalle.fleetops.vehicles.application.port.out.AppliedRouteRepository;
 import co.edu.univalle.fleetops.vehicles.application.port.out.DocumentValidityPort;
+import co.edu.univalle.fleetops.vehicles.application.port.out.EventOutbox;
 import co.edu.univalle.fleetops.vehicles.application.port.out.ProcessedEventRepository;
 import co.edu.univalle.fleetops.vehicles.application.port.out.StatusHistoryRepository;
 import co.edu.univalle.fleetops.vehicles.application.port.out.TransactionPort;
 import co.edu.univalle.fleetops.vehicles.application.port.out.VehicleRepository;
 import co.edu.univalle.fleetops.vehicles.application.usecase.ChangeToMaintenanceService;
 import co.edu.univalle.fleetops.vehicles.application.usecase.DeleteVehicleService;
+import co.edu.univalle.fleetops.vehicles.application.consumer.DocumentExpiredHandler;
+import co.edu.univalle.fleetops.vehicles.application.consumer.DocumentRenewedHandler;
 import co.edu.univalle.fleetops.vehicles.application.usecase.GetVehicleService;
 import co.edu.univalle.fleetops.vehicles.application.usecase.ListEligibleVehiclesService;
 import co.edu.univalle.fleetops.vehicles.application.usecase.ListVehiclesService;
+import co.edu.univalle.fleetops.vehicles.application.consumer.MaintenanceCompletedHandler;
 import co.edu.univalle.fleetops.vehicles.application.usecase.ProcessIncomingEventService;
 import co.edu.univalle.fleetops.vehicles.application.usecase.RegisterVehicleService;
+import co.edu.univalle.fleetops.vehicles.application.consumer.RouteFinishedHandler;
+import co.edu.univalle.fleetops.vehicles.application.consumer.RouteStartedHandler;
+import co.edu.univalle.fleetops.vehicles.application.consumer.SevereIncidentReportedHandler;
 import co.edu.univalle.fleetops.vehicles.application.usecase.UpdateVehicleService;
 import java.time.Clock;
 import org.springframework.beans.factory.ObjectProvider;
@@ -40,14 +48,15 @@ public class UseCaseConfig {
      *
      * @param vehicles persistencia de vehículos
      * @param history persistencia del historial
+     * @param outbox registro de eventos en la misma transacción
      * @param transaction ejecución transaccional
      * @param clock reloj en GMT-5
      * @return el caso de uso
      */
     @Bean
     public RegisterVehicleUseCase registerVehicleUseCase(VehicleRepository vehicles,
-            StatusHistoryRepository history, TransactionPort transaction, Clock clock) {
-        return new RegisterVehicleService(vehicles, history, transaction, clock);
+            StatusHistoryRepository history, EventOutbox outbox, TransactionPort transaction, Clock clock) {
+        return new RegisterVehicleService(vehicles, history, outbox, transaction, clock);
     }
 
     /**
@@ -89,14 +98,15 @@ public class UseCaseConfig {
      * Caso de uso de edición.
      *
      * @param vehicles persistencia de vehículos
+     * @param outbox registro de eventos en la misma transacción
      * @param transaction ejecución transaccional
      * @param clock reloj en GMT-5
      * @return el caso de uso
      */
     @Bean
-    public UpdateVehicleUseCase updateVehicleUseCase(VehicleRepository vehicles, TransactionPort transaction,
-            Clock clock) {
-        return new UpdateVehicleService(vehicles, transaction, clock);
+    public UpdateVehicleUseCase updateVehicleUseCase(VehicleRepository vehicles, EventOutbox outbox,
+            TransactionPort transaction, Clock clock) {
+        return new UpdateVehicleService(vehicles, outbox, transaction, clock);
     }
 
     /**
@@ -104,14 +114,15 @@ public class UseCaseConfig {
      *
      * @param vehicles persistencia de vehículos
      * @param history persistencia del historial
+     * @param outbox registro de eventos en la misma transacción
      * @param transaction ejecución transaccional
      * @param clock reloj en GMT-5
      * @return el caso de uso
      */
     @Bean
     public ChangeToMaintenanceUseCase changeToMaintenanceUseCase(VehicleRepository vehicles,
-            StatusHistoryRepository history, TransactionPort transaction, Clock clock) {
-        return new ChangeToMaintenanceService(vehicles, history, transaction, clock);
+            StatusHistoryRepository history, EventOutbox outbox, TransactionPort transaction, Clock clock) {
+        return new ChangeToMaintenanceService(vehicles, history, outbox, transaction, clock);
     }
 
     /**
@@ -120,14 +131,15 @@ public class UseCaseConfig {
      * @param vehicles persistencia de vehículos
      * @param history persistencia del historial
      * @param assignments consulta de asignaciones activas a Asignaciones
+     * @param outbox registro de eventos en la misma transacción
      * @param transaction ejecución transaccional
      * @param clock reloj en GMT-5
      * @return el caso de uso
      */
     @Bean
     public DeleteVehicleUseCase deleteVehicleUseCase(VehicleRepository vehicles, StatusHistoryRepository history,
-            ActiveAssignmentsPort assignments, TransactionPort transaction, Clock clock) {
-        return new DeleteVehicleService(vehicles, history, assignments, transaction, clock);
+            ActiveAssignmentsPort assignments, EventOutbox outbox, TransactionPort transaction, Clock clock) {
+        return new DeleteVehicleService(vehicles, history, assignments, outbox, transaction, clock);
     }
 
     /**
@@ -143,5 +155,97 @@ public class UseCaseConfig {
     public ProcessIncomingEventUseCase processIncomingEventUseCase(ObjectProvider<IncomingEventHandler> handlers,
             ProcessedEventRepository processed, TransactionPort transaction, Clock clock) {
         return new ProcessIncomingEventService(handlers.orderedStream().toList(), processed, transaction, clock);
+    }
+
+    /**
+     * Consumidor de {@code severe_incident_reported_event}.
+     *
+     * @param vehicles persistencia de vehículos
+     * @param history persistencia del historial
+     * @param outbox registro de eventos en la misma transacción
+     * @param clock reloj en GMT-5
+     * @return el consumidor
+     */
+    @Bean
+    public IncomingEventHandler severeIncidentReportedHandler(VehicleRepository vehicles,
+            StatusHistoryRepository history, EventOutbox outbox, Clock clock) {
+        return new SevereIncidentReportedHandler(vehicles, history, outbox, clock);
+    }
+
+    /**
+     * Consumidor de {@code maintenance_completed_event}.
+     *
+     * @param vehicles persistencia de vehículos
+     * @param history persistencia del historial
+     * @param outbox registro de eventos en la misma transacción
+     * @param clock reloj en GMT-5
+     * @return el consumidor
+     */
+    @Bean
+    public IncomingEventHandler maintenanceCompletedHandler(VehicleRepository vehicles, StatusHistoryRepository history,
+            EventOutbox outbox, Clock clock) {
+        return new MaintenanceCompletedHandler(vehicles, history, outbox, clock);
+    }
+
+    /**
+     * Consumidor de {@code document_expired_event}.
+     *
+     * @param vehicles persistencia de vehículos
+     * @param history persistencia del historial
+     * @param outbox registro de eventos en la misma transacción
+     * @param clock reloj en GMT-5
+     * @return el consumidor
+     */
+    @Bean
+    public IncomingEventHandler documentExpiredHandler(VehicleRepository vehicles, StatusHistoryRepository history,
+            EventOutbox outbox, Clock clock) {
+        return new DocumentExpiredHandler(vehicles, history, outbox, clock);
+    }
+
+    /**
+     * Consumidor de {@code document_renewed_event}.
+     *
+     * @param vehicles persistencia de vehículos
+     * @param history persistencia del historial
+     * @param outbox registro de eventos en la misma transacción
+     * @param clock reloj en GMT-5
+     * @return el consumidor
+     */
+    @Bean
+    public IncomingEventHandler documentRenewedHandler(VehicleRepository vehicles, StatusHistoryRepository history,
+            EventOutbox outbox, Clock clock) {
+        return new DocumentRenewedHandler(vehicles, history, outbox, clock);
+    }
+
+    /**
+     * Consumidor de {@code route_started_event}.
+     *
+     * @param vehicles persistencia de vehículos
+     * @param history persistencia del historial
+     * @param outbox registro de eventos en la misma transacción
+     * @param clock reloj en GMT-5
+     * @param routes rutas ya sumadas
+     * @return el consumidor
+     */
+    @Bean
+    public IncomingEventHandler routeStartedHandler(VehicleRepository vehicles, StatusHistoryRepository history,
+            EventOutbox outbox, Clock clock, AppliedRouteRepository routes) {
+        return new RouteStartedHandler(vehicles, history, outbox, clock, routes);
+    }
+
+    /**
+     * Consumidor de {@code route_finished_event}.
+     *
+     * @param vehicles persistencia de vehículos
+     * @param history persistencia del historial
+     * @param outbox registro de eventos en la misma transacción
+     * @param clock reloj en GMT-5
+     * @param routes rutas ya sumadas
+     * @return el consumidor
+     */
+    @Bean
+    public IncomingEventHandler routeFinishedHandler(VehicleRepository vehicles, StatusHistoryRepository history,
+            EventOutbox outbox, Clock clock, AppliedRouteRepository routes) {
+        return new RouteFinishedHandler(vehicles, history, outbox, clock, routes);
     }
 }

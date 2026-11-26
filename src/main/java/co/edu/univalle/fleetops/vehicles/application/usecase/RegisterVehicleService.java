@@ -1,7 +1,9 @@
 package co.edu.univalle.fleetops.vehicles.application.usecase;
 
 import co.edu.univalle.fleetops.vehicles.application.command.RegisterVehicleCommand;
+import co.edu.univalle.fleetops.vehicles.application.event.VehicleEvents;
 import co.edu.univalle.fleetops.vehicles.application.port.in.RegisterVehicleUseCase;
+import co.edu.univalle.fleetops.vehicles.application.port.out.EventOutbox;
 import co.edu.univalle.fleetops.vehicles.application.port.out.StatusHistoryRepository;
 import co.edu.univalle.fleetops.vehicles.application.port.out.TransactionPort;
 import co.edu.univalle.fleetops.vehicles.application.port.out.VehicleRepository;
@@ -16,11 +18,12 @@ import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.Year;
 
-/** Alta de un vehículo en ACTIVE, con su primer registro en el historial. */
+/** Alta de un vehículo en ACTIVE, con su primer registro en el historial y {@code vehicle_created_event}. */
 public class RegisterVehicleService implements RegisterVehicleUseCase {
 
     private final VehicleRepository vehicles;
     private final StatusHistoryRepository history;
+    private final EventOutbox outbox;
     private final TransactionPort transaction;
     private final Clock clock;
 
@@ -29,13 +32,15 @@ public class RegisterVehicleService implements RegisterVehicleUseCase {
      *
      * @param vehicles persistencia de vehículos
      * @param history persistencia del historial de estados
+     * @param outbox registro de eventos en la misma transacción
      * @param transaction ejecución transaccional
      * @param clock reloj en GMT-5
      */
     public RegisterVehicleService(VehicleRepository vehicles, StatusHistoryRepository history,
-                                  TransactionPort transaction, Clock clock) {
+                                  EventOutbox outbox, TransactionPort transaction, Clock clock) {
         this.vehicles = vehicles;
         this.history = history;
+        this.outbox = outbox;
         this.transaction = transaction;
         this.clock = clock;
     }
@@ -56,6 +61,7 @@ public class RegisterVehicleService implements RegisterVehicleUseCase {
                     Vehicle.register(plate, command.vehicleType(), details, command.odometerKm(), now));
             history.save(StatusHistoryEntry.of(saved.id(), null, saved.status(),
                     StatusChangeCause.VEHICLE_CREATED, null, now));
+            outbox.record(VehicleEvents.CREATED, saved.id(), VehicleEvents.created(saved));
             return VehicleResult.from(saved);
         });
     }

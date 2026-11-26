@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import co.edu.univalle.fleetops.vehicles.application.port.in.ChangeToMaintenanceUseCase;
+import co.edu.univalle.fleetops.vehicles.application.port.in.DeleteVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.GetVehicleUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.ListVehiclesUseCase;
 import co.edu.univalle.fleetops.vehicles.application.port.in.RegisterVehicleUseCase;
@@ -48,6 +49,9 @@ class VehicleDatabaseUnavailableTest {
 
     @MockitoBean
     private ListVehiclesUseCase listVehicles;
+
+    @MockitoBean
+    private DeleteVehicleUseCase deleteVehicle;
 
     @TestConfiguration
     static class ClockConfig {

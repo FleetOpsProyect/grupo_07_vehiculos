@@ -32,7 +32,8 @@ docker compose --profile app down        # apagar (agregue -v para borrar la bas
   de la API tampoco: recibe la conexión por variables de entorno.
 - Si tenían una base local de antes del Sprint 0 (PostgreSQL 16 o migraciones viejas), bórrenla:
   `docker compose down -v`. Las migraciones V1–V3 cambiaron y no incluyen `applied_route` (se crea
-  en V5 en una HU posterior; V4 es el outbox), y un volumen de PostgreSQL 16 no arranca con la imagen 17.
+  en V6; V4 es el outbox y V5 el `version_number`), y un volumen de PostgreSQL 16 no arranca con la
+  imagen 17.
 
 ### Nota sobre el JDK
 
@@ -80,9 +81,10 @@ co.edu.univalle.fleetops.vehicles
 │   ├── port.in       Un puerto de entrada (interfaz) por caso de uso, e IncomingEventHandler
 │   ├── port.out      VehicleRepository, StatusHistoryRepository, DocumentValidityPort,
 │   │                 ActiveAssignmentsPort, TransactionPort y los de mensajería: EventOutbox,
-│   │                 OutboxQueue, EventPublisher, ProcessedEventRepository
+│   │                 OutboxQueue, EventPublisher, ProcessedEventRepository, AppliedRouteRepository
 │   ├── usecase       Implementaciones (clases simples, sin anotaciones)
-│   ├── event         PendingEvent e IncomingEvent (mensajes sin formato de transporte)
+│   ├── consumer      Consumidores de eventos de otros servicios (un IncomingEventHandler por evento)
+│   ├── event         PendingEvent, IncomingEvent, VehicleEvents (payloads) y EventData (lectura validada)
 │   ├── command/query/result   Entradas y salidas de los casos de uso
 │   └── exception     Fallas de los puertos de salida (DocumentServiceUnavailable, ...)
 └── infrastructure    Todo lo que usa un framework
@@ -107,7 +109,10 @@ Decisiones que conviene conocer:
 - **Transacciones**: los casos de uso piden transacción por el puerto `TransactionPort`
   (`SpringTransactionAdapter`). Las llamadas a otros servicios van fuera de la transacción.
 - **Bloqueo optimista**: la columna `version` la maneja JPA dentro del adaptador. El dominio no
-  conoce la versión (no es el `version_number` de negocio, que llega con los eventos de negocio).
+  la conoce.
+- **Versión de negocio**: `Vehicle.versionNumber()` (columna `version_number`, V5) es el `version_number`
+  de los eventos: 0 en el alta y +1 con cada cambio real (edición con algún campo distinto, paso a
+  mantenimiento, baja). Es distinta de `version`: no depende de JPA y viaja a los otros servicios.
 - **Placa única**: índice parcial `ux_vehicle_plate_active`; su violación se traduce en
   `PlateAlreadyExistsException` (409).
 - **Errores**: `GlobalExceptionHandler` traduce cada `code` a su HTTP en un solo mapa
@@ -115,8 +120,31 @@ Decisiones que conviene conocer:
 
 ## Mensajería (SNS y SQS)
 
-HU-13 deja lista la infraestructura. Ningún caso de uso publica todavía eventos de negocio ni hay
-consumidores reales (ver «Pendiente de mensajería»).
+Vehículos publica los 5 eventos del contrato (sección 4) y consume los 6 de la sección 5.
+
+| Evento | Lo registra | Cuándo |
+| --- | --- | --- |
+| `vehicle_created_event` | `RegisterVehicleService` | `POST /vehicles` exitoso, con `version_number` 0 |
+| `vehicle_updated_event` | `UpdateVehicleService` | `PUT /vehicles/{id}` que cambia algún campo; lleva `changed_fields`. Si no cambia nada, no publica ni sube la versión |
+| `vehicle_status_changed_event` | `ChangeToMaintenanceService` y los consumidores | Cada vez que cambian los bloqueos (aunque el estado no cambie) o la ruta cambia el estado. Causa `MAINTENANCE`, `INCIDENT` o `DOCUMENT` con `BLOCK_ADDED` / `BLOCK_REMOVED`, o `ROUTE` con `ROUTE_STARTED` / `ROUTE_FINISHED`. Cada uno deja una fila en `status_history` |
+| `vehicle_deleted_event` | `DeleteVehicleService` | `DELETE /vehicles/{id}` exitoso. Repetir la baja de un vehículo ya eliminado no publica. Si Asignaciones (G2) no responde, no se borra ni se publica |
+| `vehicle_odometer_updated_event` | `RouteFinishedHandler` | `route_finished_event`: suma `distance_km` una sola vez por `route_id` (tabla `applied_route`, V6) |
+
+El contenido de cada `data` se arma en `application/event/VehicleEvents`, con los campos del contrato.
+
+| Evento consumido | Consumidor (`application/consumer`) | Efecto |
+| --- | --- | --- |
+| `severe_incident_reported_event` (G5) | `SevereIncidentReportedHandler` | Agrega `INCIDENT:<incident_id>` → BLOCKED |
+| `maintenance_completed_event` (G3) | `MaintenanceCompletedHandler` | Quita `MAINTENANCE:<maintenance_order_id>` y, si viene, `INCIDENT:<incident_id>` |
+| `document_expired_event` (G1) | `DocumentExpiredHandler` | Si `owner_type` es VEHICLE, agrega `DOCUMENT:<document_id>` |
+| `document_renewed_event` (G1) | `DocumentRenewedHandler` | Si `owner_type` es VEHICLE, quita `DOCUMENT:<previous_document_id>` |
+| `route_started_event` (G6) | `RouteStartedHandler` | Marca la ruta en curso → ON_ROUTE si no hay bloqueos |
+| `route_finished_event` (G6) | `RouteFinishedHandler` | Suma la distancia al odómetro y libera la ruta |
+
+Reglas comunes: un vehículo desconocido o eliminado no cambia (salvo el fin de ruta, que suma igual) y el
+listener lo registra como `had no effect`; repetir un bloqueo o quitar uno que no existe no hace nada; un
+campo obligatorio ausente o inválido (por ejemplo, un id que no es UUID) lanza `InvalidEventDataException`
+y el mensaje termina en la DLQ al tercer intento.
 
 ```
 caso de uso ──(misma transacción)──▶ outbox_events (PENDING)
@@ -169,7 +197,14 @@ SNS no forma parte de `/ready`: si SNS cae, la API sigue respondiendo y los even
 (gauge), `vehicles_outbox_published_total`, `vehicles_messages_consumed_total` y
 `vehicles_messaging_errors_total{operation="publish|consume"}`.
 
-**Verificar en el EC2 con un evento de prueba** (hasta que exista un evento de negocio real):
+**Verificar en el EC2**: crear o editar un vehículo y revisar que su evento pase a `PUBLISHED`:
+
+```bash
+docker exec -i vehiculos_postgres_prod psql -U "$DB_USER" -d "$DB_NAME" \
+  -c "SELECT event_type, status, attempts, last_error FROM outbox_events ORDER BY created_at DESC LIMIT 5;"
+```
+
+**Evento de prueba** (sin tocar vehículos; útil para probar solo la conexión con SNS):
 
 ```bash
 docker exec -i vehiculos_postgres_prod psql -U "$DB_USER" -d "$DB_NAME" <<'SQL'
@@ -255,37 +290,44 @@ Despliegue manual o rollback a mano desde el EC2: `cd ~/app && ./deploy.sh <sha_
 
 ## Estado
 
-Hecho: dominio y casos de uso, persistencia JPA con Flyway V1–V4, `POST /vehicles` (HU-01),
+Hecho: dominio y casos de uso, persistencia JPA con Flyway V1–V6, `POST /vehicles` (HU-01),
 `GET /vehicles/{id}` (HU-02), `GET /vehicles` con filtros y `summary` (HU-03), `PUT /vehicles/{id}/status`
-(HU-04: paso a IN_MAINTENANCE, idempotente por `maintenance_id`), `PUT /vehicles/{id}` (HU-11), manejador de
+(HU-04: paso a IN_MAINTENANCE, idempotente por `maintenance_id`), `PUT /vehicles/{id}` (HU-11),
+`DELETE /vehicles/{id}` (baja lógica, consulta a Asignaciones con `AssignmentsHttpClient`), manejador de
 errores, filtro `X-Correlation-Id`, Swagger, `/health`, `/ready` y `/metrics` (en el puerto 18001 en
-producción), Docker, los workflows de CI/CD, el EC2 y la infraestructura de mensajería (HU-13). Si la base de
+producción), Docker, los workflows de CI/CD, el EC2, la infraestructura de mensajería (HU-13) y los eventos
+de alta, edición, cambio de estado y baja con `version_number`. Si la base de
 datos no responde, cualquier endpoint responde 503 `SERVICE_UNAVAILABLE` y registra el fallo con nivel ERROR.
 
 ## Pendiente
 
-- [ ] **Endpoints restantes**: `GET /vehicles?valid_until=` (aptos; caso de uso y puerto ya existen) y
-  `DELETE /vehicles/{id}`.
-- [ ] **Clientes de G1 y G2**: reemplazar `PendingDocumentValidityClient` (G1,
-  `GET /documents/validity-check`, lotes de 100) y `PendingAssignmentsClient` (G2,
-  `GET /assignment/active`) por clientes HTTP con timeout de 2 s que lancen
-  `DocumentServiceUnavailableException` / `AssignmentServiceUnavailableException` (503). Hoy esos
-  marcadores responden 503 siempre. `infrastructure/client` está excluido de JaCoCo hasta entonces.
+- [ ] **Endpoint restante**: `GET /vehicles?valid_until=` (aptos; caso de uso y puerto ya existen).
+- [ ] **Cliente de G1**: reemplazar `PendingDocumentValidityClient` (`GET /documents/validity-check`,
+  lotes de 100) por un cliente HTTP con timeout de 2 s que lance `DocumentServiceUnavailableException`
+  (503), como `AssignmentsHttpClient`. Hoy ese marcador responde 503 siempre y es lo único de
+  `infrastructure/client` excluido de JaCoCo y de la cobertura de Sonar.
+- [ ] **Confirmar con G2**: `AssignmentsHttpClient` llama a `GET {ASSIGNMENTS_SERVICE_URL}/assignment/active?vehicle_id={id}`
+  y solo lee `total` (sección 6 del contrato). G2 debe confirmar que acepta `vehicle_id` y devuelve `total`, y
+  hay que poner su URL en `ASSIGNMENTS_SERVICE_URL` del EC2. Sin respuesta en 2 s, un código distinto de 2xx o
+  sin `total` válido, `DELETE` responde 503 `ASSIGNMENT_SERVICE_UNAVAILABLE` y no borra.
 - [ ] **SonarCloud**: la organización, la clave del proyecto y `SONAR_TOKEN` ya están configurados.
   Falta ajustar `sonar.coverage.exclusions` en `build.gradle` a la estructura hexagonal: hoy excluye
   `**/model/**` y `**/exception/**`, que ahora son del dominio y sí deben medirse.
 - [ ] **Cierre del Paso 11**: proteger las ramas `dev` y `main` en GitHub y el checklist C01–C12.
-- [ ] **Recursos de AWS**: acordar con el curso quién crea el topic, las colas y las suscripciones, y
-  configurar `SNS_TOPIC_ARN` y `SQS_QUEUE_URL` en el `.env` del EC2.
+- [ ] **Suscripciones de `vehicles_queue`**: suscribir la cola a los topics de G1, G3, G5 y G6 cuando
+  existan (con *raw message delivery* y, si están en otra cuenta, la política de la cola).
 
 ## Pendiente de mensajería
 
-HU-13 dejó la tubería; falta conectarla:
-
-- `version_number` de negocio (el alta lo publica en 0) y la tabla `applied_route` (V5).
-- Publicar `vehicle_created_event`, `vehicle_updated_event`, `vehicle_deleted_event`,
-  `vehicle_status_changed_event` y `vehicle_odometer_updated_event` desde los casos de uso con `EventOutbox`.
-- Los consumidores del contrato (sección 5), cada uno como `IncomingEventHandler`.
+- Suscribir `vehicles_queue` a los topics de G1, G3, G5 y G6 (ver «Pendiente»). Hasta entonces los
+  consumidores no reciben nada en AWS.
+- G6 publica aún con nombres en español (`RutaIniciadaEvent`, `RutaFinalizadaEvent`): esos mensajes llegan como
+  tipo desconocido y se descartan. Los consumidores de rutas esperan `route_started_event` y
+  `route_finished_event` con `route_id` y `vehicle_id` UUID.
+- G3 debe enviar `maintenance_order_id` igual al `maintenance_id` del `PUT /vehicles/{id}/status`, o el bloqueo
+  de mantenimiento no se quita.
+- Nombre del evento de edición: se publica `vehicle_updated_event` (contrato y ejemplo del catálogo); la
+  columna del catálogo v4 dice `vehicle_update_event` y debe corregirse.
 
 ## Deuda técnica
 

@@ -53,6 +53,7 @@ class ProcessIncomingEventServiceTest {
     @Test
     void execute_newEvent_registersItAndRunsTheHandler() {
         when(processed.markProcessed("evt-1", TYPE, NOW)).thenReturn(true);
+        when(handler.handle(event)).thenReturn(true);
 
         IncomingEventResult result = service.execute(event);
 
@@ -60,6 +61,17 @@ class ProcessIncomingEventServiceTest {
         InOrder order = inOrder(processed, handler);
         order.verify(processed).markProcessed("evt-1", TYPE, NOW);
         order.verify(handler).handle(event);
+    }
+
+    @Test
+    void execute_handlerWithoutEffect_registersItAndReturnsIgnored() {
+        when(processed.markProcessed("evt-1", TYPE, NOW)).thenReturn(true);
+        when(handler.handle(event)).thenReturn(false);
+
+        IncomingEventResult result = service.execute(event);
+
+        assertThat(result).isEqualTo(IncomingEventResult.IGNORED);
+        verify(processed).markProcessed("evt-1", TYPE, NOW);
     }
 
     @Test

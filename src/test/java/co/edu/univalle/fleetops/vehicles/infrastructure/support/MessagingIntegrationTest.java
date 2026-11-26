@@ -68,10 +68,11 @@ public abstract class MessagingIntegrationTest extends PostgresIntegrationTest {
                 }
 
                 @Override
-                public void handle(IncomingEvent event) {
+                public boolean handle(IncomingEvent event) {
                     HANDLED.add(event);
                     outbox.record("vehicle_status_changed_event", UUID.randomUUID(),
                             Map.of("source_event_id", event.eventId()));
+                    return true;
                 }
             };
         }
@@ -85,7 +86,7 @@ public abstract class MessagingIntegrationTest extends PostgresIntegrationTest {
                 }
 
                 @Override
-                public void handle(IncomingEvent event) {
+                public boolean handle(IncomingEvent event) {
                     HANDLED.add(event);
                     outbox.record("vehicle_status_changed_event", UUID.randomUUID(),
                             Map.of("source_event_id", event.eventId()));

@@ -3,6 +3,7 @@ package co.edu.univalle.fleetops.vehicles.infrastructure.web.mapper;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.BlockResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.ChangeStatusRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.CreateVehicleRequest;
+import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.DeletedVehicleResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.UpdateVehicleRequest;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.VehiclePageResponse;
 import co.edu.univalle.fleetops.vehicles.infrastructure.web.dto.VehicleResponse;
@@ -12,6 +13,7 @@ import co.edu.univalle.fleetops.vehicles.application.command.RegisterVehicleComm
 import co.edu.univalle.fleetops.vehicles.application.command.UpdateVehicleCommand;
 import co.edu.univalle.fleetops.vehicles.application.query.ListVehiclesQuery;
 import co.edu.univalle.fleetops.vehicles.application.result.BlockResult;
+import co.edu.univalle.fleetops.vehicles.application.result.DeletedVehicleResult;
 import co.edu.univalle.fleetops.vehicles.application.result.VehiclePageResult;
 import co.edu.univalle.fleetops.vehicles.application.result.VehicleResult;
 import co.edu.univalle.fleetops.vehicles.application.result.VehicleSummaryResult;
@@ -137,6 +139,17 @@ public final class VehicleWebMapper {
                 result.model(), result.year(), result.color(), result.notes(), result.odometerKm(),
                 result.status(), result.activeBlocks().stream().map(VehicleWebMapper::toBlockResponse).toList(),
                 result.activeRouteId(), result.deleted(), inBogota(result.createdAt()),
+                inBogota(result.updatedAt()));
+    }
+
+    /**
+     * Convierte el resultado de la baja en la respuesta HTTP, con la fecha en GMT-5.
+     *
+     * @param result resultado del caso de uso de baja
+     * @return el DTO de respuesta
+     */
+    public static DeletedVehicleResponse toDeletedResponse(DeletedVehicleResult result) {
+        return new DeletedVehicleResponse(result.vehicleId(), result.plate(), result.status(), result.deleted(),
                 inBogota(result.updatedAt()));
     }
 

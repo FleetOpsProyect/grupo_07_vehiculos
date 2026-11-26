@@ -32,6 +32,8 @@ public abstract class PostgresIntegrationTest {
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
         registry.add("spring.flyway.user", POSTGRES::getUsername);
         registry.add("spring.flyway.password", POSTGRES::getPassword);
+        // Solo el esquema: sin la carga inicial de db/seed, cada prueba crea sus datos
+        registry.add("spring.flyway.locations", () -> "classpath:db/migration");
     }
 
     @BeforeEach

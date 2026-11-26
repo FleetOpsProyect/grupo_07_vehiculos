@@ -4,12 +4,12 @@ global:
 scrape_configs:
   - job_name: 'ec2-node'
     static_configs:
-      - targets: ['3.141.45.63:19100']
+      - targets: ['3.147.44.193:19100']
 
   - job_name: 'ec2-docker'
     static_configs:
-      - targets: ['3.141.45.63:18080']
+      - targets: ['3.147.44.193:18080']
 
   - job_name: 'api-metrics'
     static_configs:
-      - targets: ['3.141.45.63:18001']
+      - targets: ['3.147.44.193:18001']
